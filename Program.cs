@@ -13,8 +13,6 @@ using ShellProgressBar;
 
 namespace azure_sql_db_data_to_embeddings;
 
-public record EmbeddingData(string Id, string Text);
-
 public class Program
 {
     static readonly TableInfo _tableInfo;
@@ -28,6 +26,8 @@ public class Program
 
     static readonly List<Task> tasks = [];
     static readonly int _maxTasks = 0; // 0 to auto-detect
+
+    static readonly IVectorizer vectorizer;
  
     static Program()
     {
@@ -40,6 +40,11 @@ public class Program
             Env.GetString("CONTENT_COLUMN_NAME"),
             Env.GetString("EMBEDDING_COLUMN_NAME")
         );    
+
+        vectorizer = new DedicatedTableVectorizer(
+            Env.GetString("MSSQL_CONNECTION_STRING"),
+            _tableInfo
+        );
 
         _embeddingModel = Env.GetString("OPENAI_EMBEDDING_DEPLOYMENT_NAME");
 
@@ -61,7 +66,7 @@ public class Program
             _openAIClients.Add(openAIClient);
         }
 
-        _maxTasks = _maxTasks == 0 ? _openAIClients.Count * 2: _maxTasks;
+        _maxTasks = _maxTasks == 0 ? _openAIClients.Count * 2: _maxTasks;        
     }
 
     static void Main(string[] args)
@@ -75,10 +80,10 @@ public class Program
         Console.WriteLine($"OpenAI Clients: {_openAIClients.Count}, Max Tasks: {_maxTasks}, Max Queue Size: {_queueBatchSize}, REST API Batch Size: {_openaiBatchSize}");
 
         Console.WriteLine("Connecting to database...");
-        TestConnection();        
+        vectorizer.TestConnection();                
 
         Console.WriteLine("Getting rows count...");
-        var t = GetDataCount();        
+        var t = vectorizer.GetDataCount();        
 
         Console.WriteLine("Processing rows...");
         ProgressBar progressBar = new(1, "Processing data...", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray })
@@ -88,7 +93,7 @@ public class Program
         };        
 
         while(true) {
-            var r = LoadData();
+            var r = vectorizer.LoadData(_queueBatchSize, _queue);
             
             if (r == 0) {
                 progressBar.Message = "No more data to process. Exiting...";    
@@ -132,13 +137,6 @@ public class Program
         Console.WriteLine("Done.");
     }
 
-    private static void TestConnection()
-    {
-        using SqlConnection conn = new(Env.GetString("MSSQL_CONNECTION_STRING"));
-        conn.Open();
-        conn.Close();
-    }
-
     private static void GetEmbeddings(int taskId, Action updateProgress)
     {
         Random random = new();
@@ -149,7 +147,7 @@ public class Program
             do 
             {
                 EmbeddingsOptions options = new() { DeploymentName = _embeddingModel };
-                List<string> ids = [];        
+                List<int> ids = [];        
 
                 // Prepare batch
                 while (_queue.TryDequeue(out EmbeddingData? data))
@@ -167,22 +165,8 @@ public class Program
                     
                 // Save embeddings to the database
                 foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
-                {
-                    var e = "[" + string.Join(",", item.Embedding.ToArray()) + "]";
-                    var id = ids[index];
-
-                    using SqlConnection conn = new(Env.GetString("MSSQL_CONNECTION_STRING"));
-                    conn.Execute($"""
-                        update
-                             {_tableInfo.Table} 
-                        set    
-                            {_tableInfo.EmbeddingColumn} = json_array_to_vector(@e)
-                        where
-                            {_tableInfo.IdColumn} = @id
-                        """,
-                        new { e, id }
-                    );
-
+                {   
+                    vectorizer.SaveEmbedding(ids[index], item.Embedding.ToArray());
                     updateProgress();
                 }                
             } while (!_queue.IsEmpty);
@@ -192,54 +176,6 @@ public class Program
             Console.WriteLine($"[{taskId:00}] Error: {ex.Message}");
             throw;
         }
-    }
-
-    private static int GetDataCount()
-    {
-        using SqlConnection conn = new(Env.GetString("MSSQL_CONNECTION_STRING"));
-        
-        var c = conn.ExecuteScalar<int>($"""
-            select 
-                count(*) 
-            from 
-                {_tableInfo.Table} 
-            where 
-                {_tableInfo.EmbeddingColumn} is null;            
-        """);
-        
-        return c;
-    }
-
-    private static int LoadData()
-    {
-        try
-        {
-            using SqlConnection conn = new(Env.GetString("MSSQL_CONNECTION_STRING"));
-
-            var reader = conn.ExecuteReader($"""
-                select top({_queueBatchSize})
-                    t.{_tableInfo.IdColumn},
-                    t.{_tableInfo.TextColumn}
-                from 
-                    {_tableInfo.Table} as t
-                where 
-                    {_tableInfo.EmbeddingColumn} is null     
-            """);            
-
-            while (reader.Read())
-            {
-                string id = reader.GetInt32(0).ToString();
-                string text = reader.GetString(1);
-                _queue.Enqueue(new EmbeddingData(id, text));
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error: {ex.Message}");
-            throw;
-        }
-
-        return _queue.Count;
     }
 };
 
