@@ -25,6 +25,11 @@ public class SameTableVectorizer: IVectorizer
         _tableInfo = tableInfo;        
     }
 
+    public void InitializeDatabase()
+    {
+        // Nothing do to here
+    }
+
     public void TestConnection()
     {
         using SqlConnection conn = new(_connectionString);

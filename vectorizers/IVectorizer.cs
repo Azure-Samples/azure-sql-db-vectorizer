@@ -6,11 +6,13 @@ public record EmbeddingData(int Id, string Text);
 
 public interface IVectorizer
 {
-    void TestConnection();
+    public void TestConnection();
 
-    int GetDataCount();
+    public void InitializeDatabase();
 
-    int LoadData(int queueBatchSize, ConcurrentQueue<EmbeddingData> queue);
+    public int GetDataCount();
 
-    void SaveEmbedding(int id, float[] embedding);
+    public int LoadData(int queueBatchSize, ConcurrentQueue<EmbeddingData> queue);
+
+    public void SaveEmbedding(int id, float[] embedding);
 }   

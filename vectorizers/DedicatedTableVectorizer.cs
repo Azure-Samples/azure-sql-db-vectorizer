@@ -1,15 +1,8 @@
 using System;
-using Azure;
-using Azure.AI.OpenAI;
 using Microsoft.Data.SqlClient;
 using Dapper;
-using DotNetEnv;
 using System.Collections.Concurrent;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Linq;
-using ShellProgressBar;
 
 namespace azure_sql_db_data_to_embeddings;
 
@@ -32,6 +25,22 @@ public class DedicatedTableVectorizer: IVectorizer
         conn.Close();
     }
 
+    public void InitializeDatabase()
+    {
+        using SqlConnection conn = new(_connectionString);
+        
+        var c = conn.ExecuteScalar<int>($"""
+            drop table if exists [dbo].[dedicated_table_vectorizer];
+            create table [dbo].[dedicated_table_vectorizer]
+            (
+                id int identity(1,1) primary key nonclustered,
+                parent_id int not null,
+                {_tableInfo.EmbeddingColumn} varbinary(8000) not null
+            );            
+            create clustered index [ixc] on [dbo].[dedicated_table_vectorizer](parent_id)
+        """);
+    }
+
     public int GetDataCount()
     {
         using SqlConnection conn = new(_connectionString);
@@ -42,7 +51,7 @@ public class DedicatedTableVectorizer: IVectorizer
             from
                 {_tableInfo.Table} s 
             left join
-                [dbo].[wikipedia_articles_embeddings_title_embeddings] e on s.id = e.parent_id
+                [dbo].[dedicated_table_vectorizer] e on s.{_tableInfo.IdColumn} = e.parent_id
             where
                 e.parent_id is null    
         """);
@@ -63,7 +72,7 @@ public class DedicatedTableVectorizer: IVectorizer
                 from 
                     {_tableInfo.Table} as s 
                 left join
-                    [dbo].[wikipedia_articles_embeddings_title_embeddings] e on s.id = e.parent_id
+                    [dbo].[dedicated_table_vectorizer] e on s.{_tableInfo.IdColumn} = e.parent_id
                 where
                     e.parent_id is null 
             """);            
@@ -90,7 +99,7 @@ public class DedicatedTableVectorizer: IVectorizer
         using SqlConnection conn = new(_connectionString);
         conn.Execute($"""
             insert into
-                [dbo].[wikipedia_articles_embeddings_title_embeddings] (parent_id, embedding)
+                [dbo].[dedicated_table_vectorizer] (parent_id, {_tableInfo.EmbeddingColumn})
             values
                 (@id, json_array_to_vector(@e))
         """, new { @id, @e } );

@@ -10,6 +10,9 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using ShellProgressBar;
+using Microsoft.SemanticKernel.Text;
+
+#pragma warning disable SKEXP0050
 
 namespace azure_sql_db_data_to_embeddings;
 
@@ -82,6 +85,9 @@ public class Program
         Console.WriteLine("Connecting to database...");
         vectorizer.TestConnection();                
 
+        Console.WriteLine("Initializing database...");
+        vectorizer.InitializeDatabase();                
+
         Console.WriteLine("Getting rows count...");
         var t = vectorizer.GetDataCount();        
 
@@ -153,11 +159,15 @@ public class Program
                 while (_queue.TryDequeue(out EmbeddingData? data))
                 {
                     if (data == null) continue;
-                    
-                    options.Input.Add(data.Text);
-                    ids.Add(data.Id);
 
-                    if (options.Input.Count == _openaiBatchSize) break;                
+                    var paragraphs =  TextChunker.SplitPlainTextParagraphs([data.Text], 4000);
+                    foreach (var paragraph in paragraphs)
+                    {
+                        options.Input.Add(paragraph);
+                        ids.Add(data.Id);
+                    }
+
+                    if (options.Input.Count >= _openaiBatchSize) break;                
                 }
 
                 // Get embeddings for the batch
