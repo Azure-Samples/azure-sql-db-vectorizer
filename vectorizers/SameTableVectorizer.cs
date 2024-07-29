@@ -11,35 +11,18 @@ using System.Collections.Generic;
 using System.Linq;
 using ShellProgressBar;
 
-namespace azure_sql_db_data_to_embeddings;
+namespace Azure.SQL.DB.Vectorizer;
 
-public class SameTableVectorizer: IVectorizer
+public class SameTableInfo: BaseTableInfo 
+{}
+
+public class SameTableVectorizer : BaseVectorizer
 {
-    private readonly string _connectionString;
+    private readonly SameTableInfo _tableInfo = new();
 
-    private readonly TableInfo _tableInfo;
-
-    public SameTableVectorizer(string connectionString, TableInfo tableInfo)
+    public override int GetDataCount()
     {
-        _connectionString = connectionString;
-        _tableInfo = tableInfo;        
-    }
-
-    public void InitializeDatabase()
-    {
-        // Nothing do to here
-    }
-
-    public void TestConnection()
-    {
-        using SqlConnection conn = new(_connectionString);
-        conn.Open();
-        conn.Close();
-    }
-
-    public int GetDataCount()
-    {
-        using SqlConnection conn = new(_connectionString);
+        using SqlConnection conn = new(ConnectionString);
         
         var c = conn.ExecuteScalar<int>($"""
             select 
@@ -53,11 +36,11 @@ public class SameTableVectorizer: IVectorizer
         return c;
     }
 
-    public int LoadData(int queueBatchSize, ConcurrentQueue<EmbeddingData> queue)
+    public override int LoadData(int queueBatchSize, ConcurrentQueue<EmbeddingData> queue)
     {
         try
         {
-            using SqlConnection conn = new(_connectionString);
+            using SqlConnection conn = new(ConnectionString);
 
             var reader = conn.ExecuteReader($"""
                 select top({queueBatchSize})
@@ -85,10 +68,10 @@ public class SameTableVectorizer: IVectorizer
         return queue.Count;
     }
 
-    public void SaveEmbedding(int id, float[] embedding) {
+    public override void SaveEmbedding(int id, float[] embedding) {
         var e = "[" + string.Join(",", embedding.ToArray()) + "]";
 
-        using SqlConnection conn = new(_connectionString);
+        using SqlConnection conn = new(ConnectionString);
         conn.Execute($"""
             update
                 {_tableInfo.Table} 

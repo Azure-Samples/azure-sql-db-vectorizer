@@ -1,8 +1,6 @@
 ﻿using System;
 using Azure;
 using Azure.AI.OpenAI;
-using Microsoft.Data.SqlClient;
-using Dapper;
 using DotNetEnv;
 using System.Collections.Concurrent;
 using System.Threading;
@@ -14,11 +12,10 @@ using Microsoft.SemanticKernel.Text;
 
 #pragma warning disable SKEXP0050
 
-namespace azure_sql_db_data_to_embeddings;
+namespace Azure.SQL.DB.Vectorizer;
 
 public class Program
 {
-    static readonly TableInfo _tableInfo;
     static readonly string _embeddingModel;
 
     static readonly List<OpenAIClient> _openAIClients = [];
@@ -36,18 +33,12 @@ public class Program
     {
         Env.Load(); 
 
-        _tableInfo = new TableInfo
-        (
-            Env.GetString("TABLE_NAME"),
-            Env.GetString("ID_COLUMN_NAME"),
-            Env.GetString("CONTENT_COLUMN_NAME"),
-            Env.GetString("EMBEDDING_COLUMN_NAME")
-        );    
+        bool useDedicatedTable = !string.IsNullOrEmpty(Env.GetString("DEDICATED_EMBEDDINGS_TABLE"));
 
-        vectorizer = new DedicatedTableVectorizer(
-            Env.GetString("MSSQL_CONNECTION_STRING"),
-            _tableInfo
-        );
+        if (useDedicatedTable)
+            vectorizer = new DedicatedTableVectorizer();
+        else
+            vectorizer = new SameTableVectorizer();
 
         _embeddingModel = Env.GetString("OPENAI_EMBEDDING_DEPLOYMENT_NAME");
 
@@ -81,6 +72,8 @@ public class Program
 
         Console.WriteLine("Starting...");
         Console.WriteLine($"OpenAI Clients: {_openAIClients.Count}, Max Tasks: {_maxTasks}, Max Queue Size: {_queueBatchSize}, REST API Batch Size: {_openaiBatchSize}");
+
+        Console.WriteLine($"Using {vectorizer.GetType()} vectorizer...");
 
         Console.WriteLine("Connecting to database...");
         vectorizer.TestConnection();                

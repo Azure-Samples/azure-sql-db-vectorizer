@@ -1,15 +1,16 @@
 using System.Linq;
+using DotNetEnv;
 
-namespace azure_sql_db_data_to_embeddings;
+namespace Azure.SQL.DB.Vectorizer;
 
-public class TableInfo(string name, string idColumn, string textColumn, string embeddingColumn)
+public abstract class BaseTableInfo
 {
-    public readonly string Table = SanitizeObjectName(name);
-    public readonly string IdColumn = SanitizeObjectName(idColumn);
-    public readonly string TextColumn = SanitizeObjectName(textColumn);
-    public readonly string EmbeddingColumn = SanitizeObjectName(embeddingColumn);
+    public readonly string Table = SanitizeObjectName(Env.GetString("TABLE_NAME"));
+    public readonly string IdColumn = SanitizeObjectName(Env.GetString("ID_COLUMN_NAME"));
+    public readonly string TextColumn = SanitizeObjectName(Env.GetString("CONTENT_COLUMN_NAME"));
+    public readonly string EmbeddingColumn = SanitizeObjectName(Env.GetString("EMBEDDING_COLUMN_NAME"));
 
-    private static string SanitizeObjectName(string name)
+    protected static string SanitizeObjectName(string name)
     {
         string result = string.Empty;
 
@@ -33,4 +34,3 @@ public class TableInfo(string name, string idColumn, string textColumn, string e
         return result;    
     }
 }
-
