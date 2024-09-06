@@ -10,6 +10,9 @@ using System.Linq;
 using ShellProgressBar;
 using Microsoft.SemanticKernel.Text;
 using System.Net.Http;
+using System.Data;
+using System.Security.Cryptography;
+using System.Threading.Tasks.Dataflow;
 
 #pragma warning disable SKEXP0050
 
@@ -30,6 +33,8 @@ public class Program
 
     static readonly IVectorizer vectorizer;
  
+    public record ChunkedText(int BatchId, int ChunkId, string Text);
+
     static Program()
     {
         Env.Load(); 
@@ -145,63 +150,79 @@ public class Program
         try
         {            
             do 
-            {
-                EmbeddingsOptions options = new() { DeploymentName = _embeddingModel };
+            {                
                 List<int> ids = [];        
                 var taskBar = childBar.Spawn(_openaiBatchSize, $"Task {taskId}", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray, DisplayTimeInRealTime = false, CollapseWhenFinished = true});
 
                 // Prepare batch
-                taskBar.Message = $"Task {taskId}: Dequeueing and Chunking...";
+                taskBar.Message = $"Task {taskId}: Dequeueing and Chunking...";                
+                List<ChunkedText> batch = [];
                 while (_queue.TryDequeue(out EmbeddingData? data))
                 {
                     if (data == null) continue;
 
-                    var paragraphs =  TextChunker.SplitPlainTextParagraphs([data.Text], 4000);
-                    
-                    // only get first chunk for now
-                    options.Input.Add(paragraphs[0]);
-                    ids.Add(data.Id);
-
-                    // TODO process and store all the chunks, creating multiple batches if needed
-                    // foreach (var paragraph in paragraphs)
-                    // {
-                    //     options.Input.Add(paragraph);
-                    //     ids.Add(data.Id);
-                    // }
-
-                    if (options.Input.Count >= _openaiBatchSize) break;                
-                }
-                
-                // Get embeddings for the batch
-                int attempts = 0;
-                while (attempts < 3)
-                {
-                    try {
-                        taskBar.Message = $"Task {taskId}: Getting Embeddings...";
-                        var returnValue = openAIClient.GetEmbeddings(options);                                    
-
-                        // Save embeddings to the database
-                        taskBar.Message = $"Task {taskId}: Saving Embeddings...";
-                        foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
-                        {   
-                            vectorizer.SaveEmbedding(ids[index], item.Embedding.ToArray());
-                            updateProgress();
-                            taskBar.Tick();
-                        }                
-
-                        attempts = int.MaxValue;
-                    } 
-                    catch (RequestFailedException ex) {
-                        if (ex.ErrorCode == null) throw;
-                        if (ex.ErrorCode.Contains("429")) 
-                        {
-                            attempts += 1;
-                            taskBar.Message = $"Task {taskId}: Throttled ({attempts}).";
-                            Task.Delay(2000).Wait();
-                        }
-                        else throw;
+                    var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], 2048);
+                    int c = 0;
+                    foreach (var paragraph in paragraphs)
+                    {
+                        c += 1;
+                        batch.Add(new ChunkedText(data.Id, c, paragraph));
                     }
-                }
+
+                    if (batch.Count >= _openaiBatchSize) break;                
+                }                
+                taskBar.MaxTicks = batch.Count;
+
+                // Split the batch in smaller sets if size is greater than max batch size
+                int batchNumber = 1;
+                foreach(var bc in batch.Chunk(_openaiBatchSize))
+                {
+                    // Create the batch to be sent to Open AI
+                    EmbeddingsOptions options = new() { DeploymentName = _embeddingModel };
+                    foreach(var c in bc)
+                    {
+                        options.Input.Add(c.Text);
+                    }
+
+                    // Get embeddings for the batch
+                    int attempts = 0;             
+                    int prevBatchID = -1;       
+                    string msgPrefix = $"Task {taskId} (B:{batchNumber}, T:{batch.Count})";
+                    while (attempts < 3)
+                    {
+                        try {
+                            taskBar.Message = $"{msgPrefix}: Getting Embeddings...";
+                            var returnValue = openAIClient.GetEmbeddings(options);                                    
+
+                            // Save embeddings to the database
+                            taskBar.Message = $"{msgPrefix}: Saving Embeddings...";
+                            foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
+                            {   
+                                vectorizer.SaveEmbedding(bc[index].BatchId, item.Embedding.ToArray());
+                                if (bc[index].BatchId != prevBatchID)
+                                {
+                                    updateProgress();
+                                    prevBatchID = bc[index].BatchId;
+                                }
+                                taskBar.Tick();
+                            }                
+
+                            attempts = int.MaxValue;
+                        } 
+                        catch (RequestFailedException ex) {
+                            if (ex.ErrorCode == null) throw;
+                            if (ex.ErrorCode.Contains("429")) 
+                            {
+                                attempts += 1;
+                                taskBar.Message = $"{msgPrefix}: Throttled ({attempts}).";
+                                Task.Delay(2000).Wait();
+                            }
+                            else throw;
+                        }
+                    }
+
+                    batchNumber += 1;
+                }                
 
             } while (!_queue.IsEmpty);
         }
