@@ -157,11 +157,17 @@ public class Program
                     if (data == null) continue;
 
                     var paragraphs =  TextChunker.SplitPlainTextParagraphs([data.Text], 4000);
-                    foreach (var paragraph in paragraphs)
-                    {
-                        options.Input.Add(paragraph);
-                        ids.Add(data.Id);
-                    }
+                    
+                    // only get first chunk for now
+                    options.Input.Add(paragraphs[0]);
+                    ids.Add(data.Id);
+
+                    // TODO process and store all the chunks, creating multiple batches if needed
+                    // foreach (var paragraph in paragraphs)
+                    // {
+                    //     options.Input.Add(paragraph);
+                    //     ids.Add(data.Id);
+                    // }
 
                     if (options.Input.Count >= _openaiBatchSize) break;                
                 }
