@@ -110,7 +110,7 @@ public class Program
             }
 
             try {
-                Enumerable.Range(0, _maxTasks).ToList().ForEach(
+                Enumerable.Range(1, _maxTasks).ToList().ForEach(
                     n => tasks.Add(
                         new Task(() => GetEmbeddings(n, childBar, () => updateProgress()))
                         )
@@ -141,7 +141,7 @@ public class Program
     {        
         Random random = new();
         OpenAIClient openAIClient = _openAIClients[taskId % _openAIClients.Count];
-        Task.Delay(taskId * 1500).Wait();
+        Task.Delay((taskId-1) * 1500).Wait();
         try
         {            
             do 
