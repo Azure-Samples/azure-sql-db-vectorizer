@@ -9,49 +9,60 @@ using System.Data;
 namespace Azure.SQL.DB.Vectorizer;
 
 
-public class DedicatedTableInfo(): BaseTableInfo
+public class DedicatedTableInfo() : BaseTableInfo
 {
     public readonly bool AutoCreateTableIfNotExists = bool.Parse(Env.GetString("AUTO_CREATE_DEDICATED_EMBEDDINGS_TABLE") ?? "false");
-        
+
     public readonly string DedicatedEmbeddingsTable = SanitizeObjectName(Env.GetString("DEDICATED_EMBEDDINGS_TABLE") ?? "[dbo].[dedicated_table_vectorizer]");
 
     public readonly string ParentIdColumnname = SanitizeObjectName(Env.GetString("PARENT_ID_COLUMN_NAME") ?? "parent_id");
 }
 
 
-public class DedicatedTableVectorizer: BaseVectorizer
+public class DedicatedTableVectorizer : BaseVectorizer
 {
     private readonly string _connectionString = Env.GetString("MSSQL_CONNECTION_STRING");
+    private readonly int _dimensions = Env.GetInt("EMBEDDING_DIMENSIONS");
 
     private readonly DedicatedTableInfo _tableInfo = new();
 
     public override void InitializeDatabase()
-    {        
+    {
         using SqlConnection conn = new(_connectionString);
 
-        if (_tableInfo.AutoCreateTableIfNotExists) {
-            Console.WriteLine($"Creating {_tableInfo.DedicatedEmbeddingsTable} table...");
-            var c = conn.ExecuteScalar<int>($"""
-                //drop table if exists {_tableInfo.DedicatedEmbeddingsTable};
+        var c = conn.ExecuteScalar<int>($"""
+            select 
+                count(*)
+            from
+                sys.tables
+            where
+                [object_id] = object_id('{_tableInfo.DedicatedEmbeddingsTable}')
+        """);
+        var tableExists = c == 1;
+
+        if (!tableExists)
+        {
+            if (_tableInfo.AutoCreateTableIfNotExists)
+            {
+                Console.WriteLine($"Creating {_tableInfo.DedicatedEmbeddingsTable} table...");
+                conn.ExecuteScalar<int>($"""
                 create table {_tableInfo.DedicatedEmbeddingsTable}
                 (
                     id int identity(1,1) primary key nonclustered,
                     {_tableInfo.ParentIdColumnname} int not null,
-                    {_tableInfo.EmbeddingColumn} varbinary(8000) not null
+                    {_tableInfo.EmbeddingColumn} vector({_dimensions}) not null
                 );            
                 create clustered index [ixc] on {_tableInfo.DedicatedEmbeddingsTable}({_tableInfo.ParentIdColumnname});
                 create nonclustered index ix__review_id on {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, id);
             """);
-        } else {
-            var c = conn.ExecuteScalar<int>($"""
-                select 
-                    count(*)
-                from
-                    sys.tables
-                where
-                    [object_id] = object_id('{_tableInfo.DedicatedEmbeddingsTable}')
-            """);   
-            if (c != 1) throw new Exception($"Table {_tableInfo.DedicatedEmbeddingsTable} does not exist");
+            }
+            else
+            {
+                throw new Exception($"Table {_tableInfo.DedicatedEmbeddingsTable} does not exist");
+            }
+        }
+        else
+        {
             Console.WriteLine($"Table {_tableInfo.DedicatedEmbeddingsTable} found...");
         }
     }
@@ -73,9 +84,9 @@ public class DedicatedTableVectorizer: BaseVectorizer
             where exists (select * from cte c where c.{_tableInfo.IdColumn} = r.id)
         """;
 
-        using SqlConnection conn = new(_connectionString);                
+        using SqlConnection conn = new(_connectionString);
         var c = conn.ExecuteScalar<int>(sql);
-        
+
         return c;
     }
 
@@ -98,8 +109,8 @@ public class DedicatedTableVectorizer: BaseVectorizer
 
         try
         {
-            using SqlConnection conn = new(_connectionString);            
-            var reader = conn.ExecuteReader(sql);            
+            using SqlConnection conn = new(_connectionString);
+            var reader = conn.ExecuteReader(sql);
 
             while (reader.Read())
             {
@@ -117,7 +128,8 @@ public class DedicatedTableVectorizer: BaseVectorizer
         return queue.Count;
     }
 
-    public override void SaveEmbedding(int id, float[] embedding) {
+    public override void SaveEmbedding(int id, float[] embedding)
+    {
         var e = "[" + string.Join(",", embedding.ToArray()) + "]";
 
         using SqlConnection conn = new(_connectionString);
@@ -125,7 +137,7 @@ public class DedicatedTableVectorizer: BaseVectorizer
             insert into
                 {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, {_tableInfo.EmbeddingColumn})
             values
-                (@id, json_array_to_vector(@e))
-        """, new { @id, @e } );
+                (@id, cast(@e as vector({_dimensions})))
+        """, new { @id, @e });
     }
 }

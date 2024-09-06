@@ -69,6 +69,7 @@ public class SameTableVectorizer : BaseVectorizer
     }
 
     public override void SaveEmbedding(int id, float[] embedding) {
+        var d = embedding.Length + 1;
         var e = "[" + string.Join(",", embedding.ToArray()) + "]";
 
         using SqlConnection conn = new(ConnectionString);
@@ -76,7 +77,7 @@ public class SameTableVectorizer : BaseVectorizer
             update
                 {_tableInfo.Table} 
             set    
-                {_tableInfo.EmbeddingColumn} = json_array_to_vector(@e)
+                {_tableInfo.EmbeddingColumn} = cast(@e as vector({d}))
             where
                 {_tableInfo.IdColumn} = @id
         """, new { @e, @id } );
