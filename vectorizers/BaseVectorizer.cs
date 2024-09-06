@@ -17,6 +17,8 @@ public interface IVectorizer
     public int LoadData(int queueBatchSize, ConcurrentQueue<EmbeddingData> queue);
 
     public void SaveEmbedding(int id, float[] embedding);
+
+    //public void SaveEmbedding(int id, string text, float[] embedding);
 }   
 
 public abstract class BaseVectorizer: IVectorizer
