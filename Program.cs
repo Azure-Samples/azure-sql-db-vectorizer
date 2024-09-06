@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using ShellProgressBar;
 using Microsoft.SemanticKernel.Text;
+using System.Net.Http;
 
 #pragma warning disable SKEXP0050
 
@@ -19,9 +20,9 @@ public class Program
     static readonly string _embeddingModel;
 
     static readonly List<OpenAIClient> _openAIClients = [];
-    static readonly int _openaiBatchSize = 25;
+    static readonly int _openaiBatchSize = 50;
 
-    static readonly int _queueBatchSize = 1000;
+    static readonly int _queueBatchSize = 5000;
     static readonly ConcurrentQueue<EmbeddingData> _queue = new();
 
     static readonly List<Task> tasks = [];
@@ -89,7 +90,7 @@ public class Program
         {
             Message = $"Total rows to process: {t}",
             MaxTicks = t
-        };        
+        };                    
 
         while(true) {
             var r = vectorizer.LoadData(_queueBatchSize, _queue);
@@ -111,7 +112,7 @@ public class Program
             try {
                 Enumerable.Range(0, _maxTasks).ToList().ForEach(
                     n => tasks.Add(
-                        new Task(() => GetEmbeddings(n, () => updateProgress()))
+                        new Task(() => GetEmbeddings(n, childBar, () => updateProgress()))
                         )
                     );
                 tasks.ForEach(t => t.Start()); 
@@ -136,8 +137,8 @@ public class Program
         Console.WriteLine("Done.");
     }
 
-    private static void GetEmbeddings(int taskId, Action updateProgress)
-    {
+    private static void GetEmbeddings(int taskId, ChildProgressBar childBar, Action updateProgress)
+    {        
         Random random = new();
         OpenAIClient openAIClient = _openAIClients[taskId % _openAIClients.Count];
         Task.Delay(taskId * 1500).Wait();
@@ -147,8 +148,10 @@ public class Program
             {
                 EmbeddingsOptions options = new() { DeploymentName = _embeddingModel };
                 List<int> ids = [];        
+                var taskBar = childBar.Spawn(_openaiBatchSize, $"Task {taskId}", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray, DisplayTimeInRealTime = false, CollapseWhenFinished = true});
 
                 // Prepare batch
+                taskBar.Message = $"Task {taskId}: Dequeueing and Chunking...";
                 while (_queue.TryDequeue(out EmbeddingData? data))
                 {
                     if (data == null) continue;
@@ -162,21 +165,43 @@ public class Program
 
                     if (options.Input.Count >= _openaiBatchSize) break;                
                 }
-
+                
                 // Get embeddings for the batch
-                var returnValue = openAIClient.GetEmbeddings(options);
-                    
-                // Save embeddings to the database
-                foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
-                {   
-                    vectorizer.SaveEmbedding(ids[index], item.Embedding.ToArray());
-                    updateProgress();
-                }                
+                int attempts = 0;
+                while (attempts < 3)
+                {
+                    try {
+                        taskBar.Message = $"Task {taskId}: Getting Embeddings...";
+                        var returnValue = openAIClient.GetEmbeddings(options);                                    
+
+                        // Save embeddings to the database
+                        taskBar.Message = $"Task {taskId}: Saving Embeddings...";
+                        foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
+                        {   
+                            vectorizer.SaveEmbedding(ids[index], item.Embedding.ToArray());
+                            updateProgress();
+                            taskBar.Tick();
+                        }                
+
+                        attempts = int.MaxValue;
+                    } 
+                    catch (RequestFailedException ex) {
+                        if (ex.ErrorCode == null) throw;
+                        if (ex.ErrorCode.Contains("429")) 
+                        {
+                            attempts += 1;
+                            taskBar.Message = $"Task {taskId}: Throttled ({attempts}).";
+                            Task.Delay(2000).Wait();
+                        }
+                        else throw;
+                    }
+                }
+
             } while (!_queue.IsEmpty);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[{taskId:00}] Error: {ex.Message}");
+            Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");            
             throw;
         }
     }
