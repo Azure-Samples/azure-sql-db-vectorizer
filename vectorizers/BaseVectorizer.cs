@@ -4,7 +4,7 @@ using DotNetEnv;
 
 namespace Azure.SQL.DB.Vectorizer;
 
-public record EmbeddingData(int Id, string Text);
+public record EmbeddingData(int RowId, string Text);
 
 public interface IVectorizer
 {
@@ -16,9 +16,7 @@ public interface IVectorizer
 
     public int LoadData(int queueBatchSize, ConcurrentQueue<EmbeddingData> queue);
 
-    public void SaveEmbedding(int id, float[] embedding);
-
-    //public void SaveEmbedding(int id, string text, float[] embedding);
+    public void SaveEmbedding(int id, string text, float[] embedding);
 }   
 
 public abstract class BaseVectorizer: IVectorizer
@@ -38,5 +36,5 @@ public abstract class BaseVectorizer: IVectorizer
 
     public abstract int LoadData(int queueBatchSize, ConcurrentQueue<EmbeddingData> queue);
 
-    public abstract void SaveEmbedding(int id, float[] embedding);
+    public abstract void SaveEmbedding(int id, string text, float[] embedding);
 }   

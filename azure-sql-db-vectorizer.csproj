@@ -16,7 +16,7 @@
     <PackageReference Include="ShellProgressBar" Version="5.2.0" />
   </ItemGroup>
 
-  <Target Name="CopyCustomContent" AfterTargets="AfterBuild">
+  <!-- <Target Name="CopyCustomContent" AfterTargets="AfterBuild">
     <Copy SourceFiles=".env" DestinationFolder="$(OutDir)" />
-  </Target>
+  </Target> -->
 </Project>

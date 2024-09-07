@@ -23,11 +23,14 @@ public class DedicatedTableVectorizer : BaseVectorizer
 {
     private readonly string _connectionString = Env.GetString("MSSQL_CONNECTION_STRING");
     private readonly int _dimensions = Env.GetInt("EMBEDDING_DIMENSIONS");
+    private readonly bool _saveTextChunks = Env.GetBool("SAVE_TEXT_CHUNKS");
 
     private readonly DedicatedTableInfo _tableInfo = new();
 
     public override void InitializeDatabase()
     {
+        Console.WriteLine($"Save text chunks: {_saveTextChunks}");
+
         using SqlConnection conn = new(_connectionString);
 
         var c = conn.ExecuteScalar<int>($"""
@@ -44,12 +47,17 @@ public class DedicatedTableVectorizer : BaseVectorizer
         {
             if (_tableInfo.AutoCreateTableIfNotExists)
             {
+                string textColumn = string.Empty;
+                if (_saveTextChunks) 
+                    textColumn = "chunk_text nvarchar(max) null,";
+                
                 Console.WriteLine($"Creating {_tableInfo.DedicatedEmbeddingsTable} table...");
                 conn.ExecuteScalar<int>($"""
                 create table {_tableInfo.DedicatedEmbeddingsTable}
                 (
                     id int identity(1,1) primary key nonclustered,
                     {_tableInfo.ParentIdColumnname} int not null,
+                    {textColumn}
                     {_tableInfo.EmbeddingColumn} vector({_dimensions}) not null
                 );            
                 create clustered index [ixc] on {_tableInfo.DedicatedEmbeddingsTable}({_tableInfo.ParentIdColumnname});
@@ -128,16 +136,26 @@ public class DedicatedTableVectorizer : BaseVectorizer
         return queue.Count;
     }
 
-    public override void SaveEmbedding(int id, float[] embedding)
+    public override void SaveEmbedding(int id, string text, float[] embedding)
     {
         var e = "[" + string.Join(",", embedding.ToArray()) + "]";
 
         using SqlConnection conn = new(_connectionString);
-        conn.Execute($"""
-            insert into
-                {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, {_tableInfo.EmbeddingColumn})
-            values
-                (@id, cast(@e as vector({_dimensions})))
-        """, new { @id, @e });
+        if (_saveTextChunks)
+        {
+            conn.Execute($"""
+                insert into
+                    {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, chunk_text, {_tableInfo.EmbeddingColumn})
+                values
+                    (@id, @t, cast(@e as vector({_dimensions})))
+            """, new { @id, @t = text, @e });
+        } else {
+            conn.Execute($"""
+                insert into
+                    {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, {_tableInfo.EmbeddingColumn})
+                values
+                    (@id, cast(@e as vector({_dimensions})))
+            """, new { @id, @e });
+        }
     }
 }

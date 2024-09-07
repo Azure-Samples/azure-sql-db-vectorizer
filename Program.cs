@@ -20,31 +20,44 @@ namespace Azure.SQL.DB.Vectorizer;
 
 public class Program
 {
-    static readonly string _embeddingModel;
+    private static readonly int _queueBatchSize = 5000;
+    private static readonly ConcurrentQueue<EmbeddingData> _queue = new();
 
-    static readonly List<OpenAIClient> _openAIClients = [];
-    static readonly int _openaiBatchSize = 50;
+    private static readonly List<Task> tasks = [];
+    private static int _maxTasks = 0; // 0 to auto-detect
 
-    static readonly int _queueBatchSize = 5000;
-    static readonly ConcurrentQueue<EmbeddingData> _queue = new();
+    private static readonly List<OpenAIClient> _openAIClients = [];
+    private static readonly int _openaiBatchSize = 50;
+    private static string _embeddingModel = "text-embedding-3-small";
 
-    static readonly List<Task> tasks = [];
-    static readonly int _maxTasks = 0; // 0 to auto-detect
+    private static IVectorizer? _vectorizer; 
+    private record ChunkedText(int RowId, int ChunkId, string Text);
 
-    static readonly IVectorizer vectorizer;
- 
-    public record ChunkedText(int BatchId, int ChunkId, string Text);
-
-    static Program()
+    static void Main(string[] args)
     {
-        Env.Load(); 
+        if (Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
+            Console.Clear();
 
-        bool useDedicatedTable = !string.IsNullOrEmpty(Env.GetString("DEDICATED_EMBEDDINGS_TABLE"));
+        Console.WriteLine("Starting...");
+
+        if (args.Length > 0)
+        {
+            Console.WriteLine($"Using {args[0]} environment file if available.");
+            Env.Load(args[0]);
+        } else {
+            Console.WriteLine($"Using .env environment file if available.");
+            Env.Load();
+        }
+
+        bool useDedicatedTable = !string.IsNullOrEmpty(Env.GetString("DEDICATED_EMBEDDINGS_TABLE"));        
 
         if (useDedicatedTable)
-            vectorizer = new DedicatedTableVectorizer();
+            _vectorizer = new DedicatedTableVectorizer();
         else
-            vectorizer = new SameTableVectorizer();
+        {
+            //_vectorizer = new SameTableVectorizer();
+            throw new NotImplementedException("SameTableVectorizer not implemented yet.");
+        }
 
         _embeddingModel = Env.GetString("OPENAI_EMBEDDING_DEPLOYMENT_NAME");
 
@@ -56,7 +69,7 @@ public class Program
 
         if (_oaiEndpoint.Length != _oaiKey.Length)
         {
-            throw new Exception("OpenAI URL and Key count mismatch.");
+            throw new ApplicationException("OpenAI URL and Key count mismatch.");
         }
 
         foreach (var (url, key) in _oaiEndpoint.Zip(_oaiKey))
@@ -66,152 +79,159 @@ public class Program
             _openAIClients.Add(openAIClient);
         }
 
-        _maxTasks = _maxTasks == 0 ? _openAIClients.Count * 2: _maxTasks;        
-    }
-
-    static void Main(string[] args)
-    {
-        Exception? exception = null;
-
-        if (Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
-            Console.Clear();               
-
-        Console.WriteLine("Starting...");
+        _maxTasks = _maxTasks == 0 ? _openAIClients.Count * 2 : _maxTasks;
+        
         Console.WriteLine($"OpenAI Clients: {_openAIClients.Count}, Max Tasks: {_maxTasks}, Max Queue Size: {_queueBatchSize}, REST API Batch Size: {_openaiBatchSize}");
-
-        Console.WriteLine($"Using {vectorizer.GetType()} vectorizer...");
+        Console.WriteLine($"Using {_vectorizer.GetType()} vectorizer...");
 
         Console.WriteLine("Connecting to database...");
-        vectorizer.TestConnection();                
+        _vectorizer.TestConnection();
 
         Console.WriteLine("Initializing database...");
-        vectorizer.InitializeDatabase();                
-
-        Console.WriteLine("Getting rows count...");
-        var t = vectorizer.GetDataCount();        
+        _vectorizer.InitializeDatabase();
 
         Console.WriteLine("Processing rows...");
+        Process();
+
+        Console.WriteLine("Done.");
+    }
+
+    private static void Process()
+    {
+        System.Diagnostics.Debug.Assert(_vectorizer != null); 
+        Exception? exception = null;
+
+        Console.WriteLine("Getting rows count...");             
+        var t = _vectorizer.GetDataCount();
+
         ProgressBar progressBar = new(1, "Processing data...", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray })
         {
             Message = $"Total rows to process: {t}",
             MaxTicks = t
-        };                    
+        };
 
-        while(true) {
-            var r = vectorizer.LoadData(_queueBatchSize, _queue);
-            
-            if (r == 0) {
-                progressBar.Message = "No more data to process. Exiting...";    
-                break;  
+        while (true)
+        {
+            var r = _vectorizer.LoadData(_queueBatchSize, _queue);
+
+            if (r == 0)
+            {
+                progressBar.Message = "No more data to process. Exiting...";
+                break;
             }
 
-            var childBar = progressBar.Spawn(r, $"Processing {r} rows batch...", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray, DisplayTimeInRealTime = false, CollapseWhenFinished = true});
+            var childBar = progressBar.Spawn(r, $"Processing {r} rows batch...", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray, DisplayTimeInRealTime = false, CollapseWhenFinished = true });
 
             void updateProgress()
             {
-                progressBar.Message = $"Total rows to process: {t} | Processed: {progressBar.CurrentTick + 1} | Current Queue: {_queue.Count}";
-                progressBar.Tick();
                 childBar.Tick();
+                progressBar.Tick();                
+                progressBar.Message = $"Total rows to process: {t} | Processed: {progressBar.CurrentTick} | Current Queue: {_queue.Count}";
             }
 
-            try {
+            try
+            {
                 Enumerable.Range(1, _maxTasks).ToList().ForEach(
                     n => tasks.Add(
                         new Task(() => GetEmbeddings(n, childBar, () => updateProgress()))
                         )
                     );
-                tasks.ForEach(t => t.Start()); 
-                Task.WaitAll([.. tasks]);
+                tasks.ForEach(t => t.Start());
+                Task.WaitAll([.. tasks]);                
             }
-            catch(Exception e)
+            catch (Exception e)
             {
-                progressBar.WriteErrorLine("Error in one of the tasks. Terminating process.");                
+                progressBar.WriteErrorLine("Error in one of the tasks. Terminating process.");
                 exception = e;
                 break;
             }
-            
+
             tasks.Clear();
 
         };
 
         if (exception != null)
         {
-            Console.WriteLine($"Error: {exception.Message}");        
+            Console.WriteLine($"Error: {exception.Message}");
         }
-
-        Console.WriteLine("Done.");
     }
 
     private static void GetEmbeddings(int taskId, ChildProgressBar childBar, Action updateProgress)
-    {        
+    {
+        System.Diagnostics.Debug.Assert(_vectorizer != null); 
+
         Random random = new();
         OpenAIClient openAIClient = _openAIClients[taskId % _openAIClients.Count];
-        Task.Delay((taskId-1) * 1500).Wait();
+        //Task.Delay((taskId - 1) * 1500).Wait();
         try
-        {            
-            do 
-            {                
-                List<int> ids = [];        
-                var taskBar = childBar.Spawn(_openaiBatchSize, $"Task {taskId}", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray, DisplayTimeInRealTime = false, CollapseWhenFinished = true});
+        {
+            do
+            {
+                List<int> ids = [];
+                var taskBar = childBar.Spawn(_openaiBatchSize, $"Task {taskId}", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray, DisplayTimeInRealTime = false, CollapseWhenFinished = true });
 
-                // Prepare batch
-                taskBar.Message = $"Task {taskId}: Dequeueing and Chunking...";                
+                // Start to dequeue the row to process and generate chunks for them
+                // Create a batch that is closest to the maximum batch size.
+                taskBar.Message = $"Task {taskId}: Dequeueing and Chunking...";
                 List<ChunkedText> batch = [];
                 while (_queue.TryDequeue(out EmbeddingData? data))
                 {
                     if (data == null) continue;
 
                     var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], 2048);
-                    int c = 0;
+                    int chunkId = 0;
                     foreach (var paragraph in paragraphs)
                     {
-                        c += 1;
-                        batch.Add(new ChunkedText(data.Id, c, paragraph));
+                        chunkId += 1;
+                        batch.Add(new ChunkedText(data.RowId, chunkId, paragraph));
                     }
 
-                    if (batch.Count >= _openaiBatchSize) break;                
+                    if (batch.Count >= _openaiBatchSize) break;
                 }                
                 taskBar.MaxTicks = batch.Count;
 
                 // Split the batch in smaller sets if size is greater than max batch size
-                int batchNumber = 1;
-                foreach(var bc in batch.Chunk(_openaiBatchSize))
+                // (For example if one row generate a lot of chunks)
+                int openAIBatchNumber = 1;
+                foreach (var bc in batch.OrderBy(o => o.RowId).ToList().Chunk(_openaiBatchSize))
                 {
                     // Create the batch to be sent to Open AI
                     EmbeddingsOptions options = new() { DeploymentName = _embeddingModel };
-                    foreach(var c in bc)
+                    foreach (var c in bc)
                     {
                         options.Input.Add(c.Text);
                     }
 
                     // Get embeddings for the batch
-                    int attempts = 0;             
-                    int prevBatchID = -1;       
-                    string msgPrefix = $"Task {taskId} (B:{batchNumber}, T:{batch.Count})";
+                    int attempts = 0;                    
+                    string msgPrefix = $"Task {taskId} (B:{openAIBatchNumber}, T:{batch.Count})";
                     while (attempts < 3)
                     {
-                        try {
+                        try
+                        {
                             taskBar.Message = $"{msgPrefix}: Getting Embeddings...";
-                            var returnValue = openAIClient.GetEmbeddings(options);                                    
+                            var returnValue = openAIClient.GetEmbeddings(options);
 
                             // Save embeddings to the database
                             taskBar.Message = $"{msgPrefix}: Saving Embeddings...";
+                            int prevRowId = -1;
                             foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
-                            {   
-                                vectorizer.SaveEmbedding(bc[index].BatchId, item.Embedding.ToArray());
-                                if (bc[index].BatchId != prevBatchID)
+                            {
+                                _vectorizer.SaveEmbedding(bc[index].RowId, bc[index].Text, item.Embedding.ToArray());
+                                if (bc[index].RowId != prevRowId && prevRowId > -1)
                                 {
-                                    updateProgress();
-                                    prevBatchID = bc[index].BatchId;
+                                    updateProgress();                                                                        
                                 }
                                 taskBar.Tick();
-                            }                
+                                prevRowId = bc[index].RowId;
+                            }
 
                             attempts = int.MaxValue;
-                        } 
-                        catch (RequestFailedException ex) {
+                        }
+                        catch (RequestFailedException ex)
+                        {
                             if (ex.ErrorCode == null) throw;
-                            if (ex.ErrorCode.Contains("429")) 
+                            if (ex.ErrorCode.Contains("429"))
                             {
                                 attempts += 1;
                                 taskBar.Message = $"{msgPrefix}: Throttled ({attempts}).";
@@ -221,14 +241,17 @@ public class Program
                         }
                     }
 
-                    batchNumber += 1;
-                }                
+                    openAIBatchNumber += 1;
+                }
 
+                //taskBar.Dispose();
             } while (!_queue.IsEmpty);
+
+            updateProgress();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");            
+            Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");
             throw;
         }
     }
