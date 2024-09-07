@@ -193,6 +193,8 @@ public class Program
                 // Split the batch in smaller sets if size is greater than max batch size
                 // (For example if one row generate a lot of chunks)
                 int openAIBatchNumber = 1;
+                int prevRowId = -1;
+                int curRowId = -1;
                 foreach (var bc in batch.OrderBy(o => o.RowId).ToList().Chunk(_openaiBatchSize))
                 {
                     // Create the batch to be sent to Open AI
@@ -213,17 +215,14 @@ public class Program
                             var returnValue = openAIClient.GetEmbeddings(options);
 
                             // Save embeddings to the database
-                            taskBar.Message = $"{msgPrefix}: Saving Embeddings...";
-                            int prevRowId = -1;
+                            taskBar.Message = $"{msgPrefix}: Saving Embeddings...";                            
                             foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
                             {
-                                _vectorizer.SaveEmbedding(bc[index].RowId, bc[index].Text, item.Embedding.ToArray());
-                                if (bc[index].RowId != prevRowId && prevRowId > -1)
-                                {
-                                    updateProgress();                                                                        
-                                }
-                                taskBar.Tick();
-                                prevRowId = bc[index].RowId;
+                                prevRowId = curRowId;
+                                curRowId = bc[index].RowId;
+                                _vectorizer.SaveEmbedding(curRowId, bc[index].Text, item.Embedding.ToArray());
+                                taskBar.Tick();         
+                                if (prevRowId != curRowId && prevRowId > -1) updateProgress();
                             }
 
                             attempts = int.MaxValue;
@@ -242,12 +241,9 @@ public class Program
                     }
 
                     openAIBatchNumber += 1;
-                }
-
-                //taskBar.Dispose();
+                }             
+                updateProgress();                                                                           
             } while (!_queue.IsEmpty);
-
-            updateProgress();
         }
         catch (Exception ex)
         {
