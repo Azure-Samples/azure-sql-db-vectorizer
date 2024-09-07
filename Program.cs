@@ -172,11 +172,13 @@ public class Program
 
                 // Start to dequeue the row to process and generate chunks for them
                 // Create a batch that is closest to the maximum batch size.
-                taskBar.Message = $"Task {taskId}: Dequeueing and Chunking...";
+                taskBar.Message = $"Task {taskId} | Dequeueing and Chunking...";
                 List<ChunkedText> batch = [];
+                int rowCount = 0;
                 while (_queue.TryDequeue(out EmbeddingData? data))
                 {
                     if (data == null) continue;
+                    rowCount +=1 ;
 
                     var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], 2048);
                     int chunkId = 0;
@@ -206,16 +208,16 @@ public class Program
 
                     // Get embeddings for the batch
                     int attempts = 0;                    
-                    string msgPrefix = $"Task {taskId} (B:{openAIBatchNumber}, T:{batch.Count})";
+                    string msgPrefix = $"Task {taskId} | Rows {rowCount} | Chunks {batch.Count}";
                     while (attempts < 3)
                     {
                         try
                         {
-                            taskBar.Message = $"{msgPrefix}: Getting Embeddings...";
+                            taskBar.Message = $"{msgPrefix} | Getting Embeddings...";
                             var returnValue = openAIClient.GetEmbeddings(options);
 
                             // Save embeddings to the database
-                            taskBar.Message = $"{msgPrefix}: Saving Embeddings...";                            
+                            taskBar.Message = $"{msgPrefix} | Saving Embeddings...";                            
                             foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
                             {
                                 prevRowId = curRowId;
@@ -233,7 +235,7 @@ public class Program
                             if (ex.ErrorCode.Contains("429"))
                             {
                                 attempts += 1;
-                                taskBar.Message = $"{msgPrefix}: Throttled ({attempts}).";
+                                taskBar.Message = $"{msgPrefix} | Throttled ({attempts}).";
                                 Task.Delay(2000).Wait();
                             }
                             else throw;
