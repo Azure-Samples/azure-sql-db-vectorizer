@@ -104,6 +104,8 @@ public class Program
         Console.WriteLine("Getting rows count...");             
         var t = _vectorizer.GetDataCount();
 
+        Console.WriteLine("Running:");        
+
         ProgressBar progressBar = new(1, "Processing data...", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray })
         {
             Message = $"Total rows to process: {t}",
