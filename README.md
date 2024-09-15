@@ -79,7 +79,7 @@ MSSQL_CONNECTION_STRING="Server=my-server.database.windows.net;Database=sampledb
 The name of the table that contains the text that must be turned into embeddings. For example:
 
 ```bash
-TABLE_NAME="dbo.wikipedia_articles_embeddings"
+TABLE_NAME="dbo.wikipedia_articles"
 ```
 
 ### ID_COLUMN_NAME ###
@@ -105,7 +105,7 @@ CONTENT_COLUMN_NAME="title"
 The name of the table that will store the embeddings. For example:
 
 ```bash 
-DEDICATED_EMBEDDINGS_TABLE="dbo.ReviewEmbeddings"
+DEDICATED_EMBEDDINGS_TABLE="dbo.wikipedia_articles_embeddings"
 ```
 
 ### EMBEDDING_COLUMN_NAME ###
