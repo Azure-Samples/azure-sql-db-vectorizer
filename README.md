@@ -12,6 +12,20 @@ Embeddings will be stored into a dedicated table. If the table doesn't exist, th
 
 ## Usage
 
+Just run 
+
+```bash
+dotnet run
+```
+
+or 
+
+```bash 
+dotnet run -- .my-env-file
+```
+
+if you want to use a different `.env` file.
+
 All confiruation options are read from environment variables. Create a `.env` file starting from the `.env.sample` and specifiy values as per the following instructions:
 
 ### OPENAI_URL & OPENAI_KEY ###
