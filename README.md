@@ -1,5 +1,12 @@
 # Azure SQL DB Vectorizer
 
+- [Overview](#overview)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Usage Sample](#usage-sample)
+
+## Overview
+
 Quickly generate embeddings from data in Azure SQL. Point to the table that has text that must to turned into embeddings, configure the `.env` file and run the tool, to get text vectorized into embedding as fast as possible.
 
 ![](./_assets/azure-sql-db-vectorizer.jpg)
@@ -158,3 +165,33 @@ create table <DEDICATED_EMBEDDINGS_TABLE>
 );            
 ```
 
+## Usage Sample
+
+### Download and import the Wikipedia Article
+
+Download the [wikipedia embeddings from here](https://cdn.openai.com/API/examples/data/vector_database_wikipedia_articles_embedded.zip), unzip it and upload it (using [Azure Storage Explorer](https://learn.microsoft.com/azure/vs-azure-tools-storage-manage-with-storage-explorer?tabs=windows) for example) to an Azure Blob Storage container.
+
+In the example the unzipped csv file `vector_database_wikipedia_articles_embedded.csv` is assumed to be uploaded to a blob container name `playground` and in a folder named `wikipedia`.
+
+Once the file is uploaded, get the [SAS token](https://learn.microsoft.com/azure/storage/common/storage-sas-overview) to allow Azure SQL database to access it. (From Azure storage Explorer, right click on the `playground` container and than select `Get Shared Access Signature`. Set the expiration date to some time in future and then click on "Create". Copy the generated query string somewhere, for example into the Notepad, as it will be needed later)
+
+Use a client tool like [Azure Data Studio](https://azure.microsoft.com/products/data-studio/) to connect to an Azure SQL database and then use the `./sql/00-setup-blob-accees` and `./sql/01-import-wikipedia.sql` to create the `wikipedia_articles` where the uploaded CSV file will be imported.
+
+Make sure to replace the `<account>` and `<sas-token>` placeholders with the value correct for your environment:
+
+- `<account>` is the name of the storage account where the CSV file has been uploaded
+- `<sas-token>` is the Share Access Signature obtained before
+
+Run each section (each section starts with a comment) separately. At the end of the process (will take up to a couple of minutes) you will have all the CSV data imported in the `wikipedia_articles` table.
+
+### Vectorize Wikipidia Articles table
+
+Create a `.wikipedia.env` file starting from the `.wikipedia.env.sample` and set the values as per instructions provided in the [Configuration](#configuration) section.
+
+Then run
+
+```bash
+dotnet run -- .wikipedia.env
+```
+
+And the tool will start to vectorize the text in the `wikipedia_articles` table and store the embeddings in the `wikipedia_articles_embeddings` table.
