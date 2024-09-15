@@ -4,11 +4,13 @@ Quickly generate embeddings from data in Azure SQL. Point to the table that has 
 
 ![](./_assets/azure-sql-db-vectorizer.jpg)
 
-Embedding will be generated using the OpenAI API. The tool will connect to the Azure SQL Database, read the text from the specified table, send the text to the OpenAI API, and store the embeddings back in the same table. If the read text is too big to fit a single API call, the tool will split the text into chunks and send each chunk to the API.
+Embedding will be generated using the OpenAI API. The tool will connect to the Azure SQL Database, read the text from the specified table, send the text to the OpenAI API, and store the embeddings back in the same table. If the read text is too big to fit a single embedding API call, the tool will split the text into chunks and send each chunk to the API.
 
 Chunking is done using the [TextChunker.SplitPlainTextParagraphs](https://learn.microsoft.com/en-us/dotnet/api/microsoft.semantickernel.text.textchunker.splitplaintextparagraphs?view=semantic-kernel-dotnet) method from the [Microsoft.SemanticKernel.Text](https://www.nuget.org/packages/Microsoft.SemanticKernel.Text/) package. Maximum number of token per paragraph is set to 2048.
 
 Embeddings will be stored into a dedicated table. If the table doesn't exist, the tool can create a new table to store the embeddings. The relationship between the original table and the table that stores the embeddings is done using the `id` / `parent_id` column and the relationship is a 1:N relationship, as each row in the original table will have one or more rows in the table that stores the embeddings due to the chunking process.
+
+By default two threads per each OpenAI URL are used to send the text to the OpenAI API. Each API call will batch togheter up to 50 text chunks to be vectorized.
 
 ## Usage
 
@@ -26,7 +28,9 @@ dotnet run -- .my-env-file
 
 if you want to use a different `.env` file.
 
-All confiruation options are read from environment variables. Create a `.env` file starting from the `.env.sample` and specifiy values as per the following instructions:
+## Configuration
+
+All configuration options are read from environment variables. Create a `.env` file starting from the `.env.sample` and specifiy values as per the following instructions:
 
 ### OPENAI_URL & OPENAI_KEY ###
 
@@ -53,6 +57,14 @@ OPENAI_EMBEDDING_DEPLOYMENT_NAME="my-text-embedding-3-small"
 ```
 
 All OpenAI url defined in the `OPENAI_URL` must have the same deployment name.
+
+### EMBEDDING_DIMENSIONS ###
+
+The number of dimensions of the embeddings. For example:
+
+```bash
+EMBEDDING_DIMENSIONS=1536
+```
 
 ### MSSQL_CONNECTION_STRING ###
 
@@ -88,28 +100,20 @@ The name of the column that contains the text that must be turned into embedding
 CONTENT_COLUMN_NAME="title"
 ```
 
-### EMBEDDING_COLUMN_NAME ###
-
-The name of the column that will contain the embeddings. For example:
-
-```bash
-EMBEDDING_COLUMN_NAME="title_vector_text3"
-```
-
-### EMBEDDING_DIMENSIONS ###
-
-The number of dimensions of the embeddings. For example:
-
-```bash
-EMBEDDING_DIMENSIONS=1536
-```
-
 ### DEDICATED_EMBEDDINGS_TABLE ###
 
 The name of the table that will store the embeddings. For example:
 
 ```bash 
 DEDICATED_EMBEDDINGS_TABLE="dbo.ReviewEmbeddings"
+```
+
+### EMBEDDING_COLUMN_NAME ###
+
+The name of the column that will contain the embeddings. For example:
+
+```bash
+EMBEDDING_COLUMN_NAME="title_vector_text3"
 ```
 
 ### AUTO_CREATE_DEDICATED_EMBEDDINGS_TABLE ###
@@ -122,6 +126,15 @@ AUTO_CREATE_DEDICATED_EMBEDDINGS_TABLE=True
 
 If the table doesn't exist, the tool will create a new table to store the embeddings.
 
+```
+create table <DEDICATED_EMBEDDINGS_TABLE>
+(
+    id int identity(1,1) primary key nonclustered,
+    parent_id int not null,
+    <EMBEDDING_COLUMN_NAME> vector(<EMBEDDING_DIMENSIONS>) not null
+);            
+```
+
 ### SAVE_TEXT_CHUNKS ###    
 
 If set to `True`, the tool will save the text chunks that were sent to the OpenAI API. For example:
@@ -130,5 +143,15 @@ If set to `True`, the tool will save the text chunks that were sent to the OpenA
 SAVE_TEXT_CHUNKS=True
 ```
 
+Tech chunks will be saved in a column named `chunk_text` in the same table that stores the embeddings.
 
+```
+create table <DEDICATED_EMBEDDINGS_TABLE>
+(
+    id int identity(1,1) primary key nonclustered,
+    parent_id int not null,
+    chunk_text nvarchar(max) null,
+    <EMBEDDING_COLUMN_NAME> vector(<EMBEDDING_DIMENSIONS>) not null
+);            
+```
 
