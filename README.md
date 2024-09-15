@@ -20,7 +20,9 @@ Chunking is done using the [TextChunker.SplitPlainTextParagraphs](https://learn.
 
 Embeddings will be stored into a dedicated table. If the table doesn't exist, the tool can create a new table to store the embeddings. The relationship between the original table and the table that stores the embeddings is done using the `id` / `parent_id` column and the relationship is a 1:N relationship, as each row in the original table will have one or more rows in the table that stores the embeddings due to the chunking process.
 
-By default two threads per each OpenAI URL are used to send the text to the OpenAI API. Each API call will batch togheter up to 50 text chunks to be vectorized.
+Rows from the database are processed in batch of 5000 rows. Those rows are read into a queue and then, by default, two threads per each OpenAI URL will pull data from the queue, chunk it if needed, and then send the embedding request to the OpenAI API. Each API call will batch togheter up to 50 text chunks to be vectorized.
+
+Once the queue is empty, the process will start again until all rows in the source table are processed.
 
 ## Usage
 
