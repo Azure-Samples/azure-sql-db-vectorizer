@@ -1,6 +1,7 @@
 # Azure SQL DB Vectorizer
 
 - [Overview](#overview)
+- [Vector support in Azure SQL](#vector-support-in-azure-sql)
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Usage Sample](#usage-sample)
@@ -13,9 +14,6 @@ Quickly generate embeddings from data in Azure SQL. Point to the table that has 
 
 Embedding will be generated using the OpenAI API. The tool will connect to the Azure SQL Database, read the text from the specified table, send the text to the OpenAI API, and store the embeddings back in the same table. If the read text is too big to fit a single embedding API call, the tool will split the text into chunks and send each chunk to the API.
 
-> [!NOTE]  
-> Vector Functions are in Early Adopter Preview. Get access to the preview via https://aka.ms/azuresql-vector-eap-announcement
-
 Chunking is done using the [TextChunker.SplitPlainTextParagraphs](https://learn.microsoft.com/en-us/dotnet/api/microsoft.semantickernel.text.textchunker.splitplaintextparagraphs?view=semantic-kernel-dotnet) method from the [Microsoft.SemanticKernel.Text](https://www.nuget.org/packages/Microsoft.SemanticKernel.Text/) package. Maximum number of token per paragraph is set to 2048.
 
 Embeddings will be stored into a dedicated table. If the table doesn't exist, the tool can create a new table to store the embeddings. The relationship between the original table and the table that stores the embeddings is done using the `id` / `parent_id` column and the relationship is a 1:N relationship, as each row in the original table will have one or more rows in the table that stores the embeddings due to the chunking process.
@@ -23,6 +21,18 @@ Embeddings will be stored into a dedicated table. If the table doesn't exist, th
 Rows from the database are processed in batch of 5000 rows. Those rows are read into a queue and then, by default, two threads per each OpenAI URL will pull data from the queue, chunk it if needed, and then send the embedding request to the OpenAI API. Each API call will batch togheter up to 50 text chunks to be vectorized.
 
 Once the queue is empty, the process will start again until all rows in the source table are processed.
+
+## Vector support in Azure SQL
+
+> [!NOTE]  
+> Vector Functions are in Early Adopter Preview. Get access to the preview via https://aka.ms/azuresql-vector-eap-announcement
+
+More details and samples on vector support in Azure SQL can be found here:
+
+- [Azure SQL DB and OpenAI](https://github.com/Azure-Samples/azure-sql-db-openai)
+- [Chatbot in pure T-SQL](https://github.com/Azure-Samples/azure-sql-db-chatbot)
+- [Session Recommender (RAG Pattern)](https://github.com/Azure-Samples/azure-sql-db-session-recommender-v2)
+- [Azure SQL & Langchain (RAG Pattern, End-To-End chatbot)](https://github.com/Azure-Samples/azure-sql-db-rag-langchain-chainlit)
 
 ## Usage
 
