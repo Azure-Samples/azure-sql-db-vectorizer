@@ -10,7 +10,7 @@
 
 Quickly generate embeddings from data in Azure SQL. Point to the table that has text that must to turned into embeddings, configure the `.env` file and run the tool, to get text vectorized into embedding as fast as possible.
 
-![](./_assets/azure-sql-db-vectorizer.jpg)
+![](./_assets/high-level-architecture.jpg)
 
 Embedding will be generated using the OpenAI API. The tool will connect to the Azure SQL Database, read the text from the specified table, send the text to the OpenAI API, and store the embeddings back in the same table. If the read text is too big to fit a single embedding API call, the tool will split the text into chunks and send each chunk to the API.
 
@@ -49,6 +49,8 @@ dotnet run -- .my-env-file
 ```
 
 if you want to use a different `.env` file.
+
+![](./_assets/sample-screenshot.jpg)
 
 ## Configuration
 
