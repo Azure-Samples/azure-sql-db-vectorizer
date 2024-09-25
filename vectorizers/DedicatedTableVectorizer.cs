@@ -88,8 +88,7 @@ public class DedicatedTableVectorizer : BaseVectorizer
                 where
                     e.id is null
             )
-            select count(r.{_tableInfo.IdColumn}) from {_tableInfo.Table} as r 
-            where exists (select * from cte c where c.{_tableInfo.IdColumn} = r.id)
+            select count(r.{_tableInfo.IdColumn}) from cte as r 
         """;
 
         using SqlConnection conn = new(_connectionString);
@@ -112,7 +111,7 @@ public class DedicatedTableVectorizer : BaseVectorizer
                         e.id is null
                 )
                 select r.{_tableInfo.IdColumn}, r.{_tableInfo.TextColumn} from {_tableInfo.Table} as r 
-                where exists (select * from cte c where c.{_tableInfo.IdColumn} = r.id)
+                where exists (select * from cte c where c.{_tableInfo.IdColumn} = r.{_tableInfo.IdColumn})
             """;
 
         try
