@@ -22,7 +22,7 @@ public class DedicatedTableInfo() : BaseTableInfo
 public class DedicatedTableVectorizer : BaseVectorizer
 {
     private readonly string _connectionString = Env.GetString("MSSQL_CONNECTION_STRING");
-    private readonly int _dimensions = Env.GetInt("EMBEDDING_DIMENSIONS");
+    private readonly int _dimensions = Env.GetInt("EMBEDDING_DIMENSIONS", 1536);
     private readonly bool _saveTextChunks = Env.GetBool("SAVE_TEXT_CHUNKS");
 
     private readonly DedicatedTableInfo _tableInfo = new();

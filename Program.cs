@@ -172,7 +172,7 @@ public class Program
                 List<int> ids = [];
                 var taskBar = childBar.Spawn(_openaiBatchSize, $"Task {taskId}", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray, DisplayTimeInRealTime = false, CollapseWhenFinished = true });
 
-                // Start to dequeue the row to process and generate chunks for them
+                // Start to dequeue the rows to process and generate chunks for them
                 // Create a batch that is closest to the maximum batch size.
                 taskBar.Message = $"Task {taskId} | Dequeueing and Chunking...";
                 List<ChunkedText> batch = [];
