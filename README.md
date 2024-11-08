@@ -25,7 +25,7 @@ Once the queue is empty, the process will start again until all rows in the sour
 ## Vector support in Azure SQL
 
 > [!NOTE]  
-> Vector Functions are in Early Adopter Preview. Get access to the preview via https://aka.ms/azuresql-vector-eap-announcement
+> Vector Functions are in Public Preview. Learn the details about vectors in Azure SQL here: https://aka.ms/azure-sql-vector-public-preview
 
 More details and samples on vector support in Azure SQL can be found here:
 
