@@ -1,6 +1,8 @@
 ﻿using System;
 using Azure;
 using Azure.AI.OpenAI;
+using OpenAI;
+using OpenAI.Embeddings;
 using DotNetEnv;
 using System.Collections.Concurrent;
 using System.Threading;
@@ -26,7 +28,7 @@ public class Program
     private static readonly List<Task> tasks = [];
     private static int _maxTasks = 0; // 0 to auto-detect
 
-    private static readonly List<OpenAIClient> _openAIClients = [];
+    private static readonly List<EmbeddingClient> _embeddingClients = [];
     private static readonly int _openaiBatchSize = 50;
     private static string _embeddingModel = "text-embedding-3-small";
 
@@ -75,13 +77,14 @@ public class Program
         foreach (var (url, key) in _oaiEndpoint.Zip(_oaiKey))
         {
             AzureKeyCredential credentials = new(key);
-            OpenAIClient openAIClient = new(new Uri(url), credentials);
-            _openAIClients.Add(openAIClient);
+            AzureOpenAIClient azureClient = new(new Uri(url), credentials);
+            EmbeddingClient embeddingClient = azureClient.GetEmbeddingClient(_embeddingModel);
+            _embeddingClients.Add(embeddingClient);
         }
 
-        _maxTasks = _maxTasks == 0 ? _openAIClients.Count * 2 : _maxTasks;
+        _maxTasks = _maxTasks == 0 ? _embeddingClients.Count * 2 : _maxTasks;
         
-        Console.WriteLine($"OpenAI Clients: {_openAIClients.Count}, Max Tasks: {_maxTasks}, Max Queue Size: {_queueBatchSize}, REST API Batch Size: {_openaiBatchSize}");
+        Console.WriteLine($"Embedding Clients: {_embeddingClients.Count}, Max Tasks: {_maxTasks}, Max Queue Size: {_queueBatchSize}, REST API Batch Size: {_openaiBatchSize}");
         Console.WriteLine($"Using {_vectorizer.GetType()} vectorizer...");
 
         Console.WriteLine("Connecting to database...");
@@ -163,7 +166,7 @@ public class Program
         System.Diagnostics.Debug.Assert(_vectorizer != null); 
 
         Random random = new();
-        OpenAIClient openAIClient = _openAIClients[taskId % _openAIClients.Count];
+        EmbeddingClient embeddingClient = _embeddingClients[taskId % _embeddingClients.Count];
         //Task.Delay((taskId - 1) * 1500).Wait();
         try
         {
@@ -202,11 +205,7 @@ public class Program
                 foreach (var bc in batch.OrderBy(o => o.RowId).ToList().Chunk(_openaiBatchSize))
                 {
                     // Create the batch to be sent to Open AI
-                    EmbeddingsOptions options = new() { DeploymentName = _embeddingModel };
-                    foreach (var c in bc)
-                    {
-                        options.Input.Add(c.Text);
-                    }
+                    List<string> inputTexts = bc.Select(c => c.Text).ToList();
 
                     // Get embeddings for the batch
                     int attempts = 0;                    
@@ -216,15 +215,15 @@ public class Program
                         try
                         {
                             taskBar.Message = $"{msgPrefix} | Getting Embeddings...";
-                            var returnValue = openAIClient.GetEmbeddings(options);
+                            var returnValue = embeddingClient.GenerateEmbeddings(inputTexts);
 
                             // Save embeddings to the database
                             taskBar.Message = $"{msgPrefix} | Saving Embeddings...";                            
-                            foreach (var (item, index) in returnValue.Value.Data.Select((item, index) => (item, index)))
+                            foreach (var (embedding, index) in returnValue.Value.Select((embedding, index) => (embedding, index)))
                             {
                                 prevRowId = curRowId;
                                 curRowId = bc[index].RowId;
-                                _vectorizer.SaveEmbedding(curRowId, bc[index].Text, item.Embedding.ToArray());
+                                _vectorizer.SaveEmbedding(curRowId, bc[index].Text, embedding.ToFloats().ToArray());
                                 taskBar.Tick();         
                                 if (prevRowId != curRowId && prevRowId > -1) updateProgress();
                             }
