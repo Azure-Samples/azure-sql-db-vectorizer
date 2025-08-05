@@ -24,10 +24,12 @@ Once the queue is empty, the process will start again until all rows in the sour
 
 ## Vector support in Azure SQL
 
-> [!NOTE]  
-> Vector Functions are in Public Preview. Learn the details about vectors in Azure SQL here: https://aka.ms/azure-sql-vector-public-preview
+More details vector support in Azure SQL can be found here: 
 
-More details and samples on vector support in Azure SQL can be found here:
+- [Overview of vector search and vector indexes in the SQL Database Engine](https://learn.microsoft.com/en-us/sql/relational-databases/vectors/vectors-sql-server?view=azuresqldb-current)
+- [Vector Data Type](https://learn.microsoft.com/en-us/sql/t-sql/data-types/vector-data-type?view=azuresqldb-current&tabs=csharp)
+
+for more samples, also, check the following repositories:
 
 - [Azure SQL DB and OpenAI](https://github.com/Azure-Samples/azure-sql-db-openai)
 - [Chatbot in pure T-SQL](https://github.com/Azure-Samples/azure-sql-db-chatbot)
