@@ -1,27 +1,28 @@
 ﻿using System;
-using Azure;
 using Azure.AI.OpenAI;
-using OpenAI;
 using OpenAI.Embeddings;
 using DotNetEnv;
 using System.Collections.Concurrent;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using ShellProgressBar;
 using Microsoft.SemanticKernel.Text;
-using System.Net.Http;
 using System.Data;
-using System.Security.Cryptography;
-using System.Threading.Tasks.Dataflow;
+using Azure.Identity;
 
 #pragma warning disable SKEXP0050
 
 namespace Azure.SQL.DB.Vectorizer;
 
+public static class Defaults
+{
+    public static readonly int EmbeddingDimensions = 1536;
+}
+
 public class Program
 {
+
     private static readonly int _queueBatchSize = 5000;
     private static readonly ConcurrentQueue<EmbeddingData> _queue = new();
 
@@ -57,14 +58,18 @@ public class Program
             _vectorizer = new DedicatedTableVectorizer();
         else
         {
-            //_vectorizer = new SameTableVectorizer();
-            throw new NotImplementedException("SameTableVectorizer not implemented yet.");
+            _vectorizer = new SameTableVectorizer();
         }
 
         _embeddingModel = Env.GetString("OPENAI_EMBEDDING_DEPLOYMENT_NAME");
 
         string oaiUrls = Env.GetString("OPENAI_URL");
-        string oaiKeys = Env.GetString("OPENAI_KEY");
+        string oaiKeys = Env.GetString("OPENAI_KEY") ?? string.Empty;
+
+        if (string.IsNullOrEmpty(oaiKeys))
+        {
+            Console.WriteLine("No OPENAI_KEY provided. Using DefaultAzureCredential.");
+        }
 
         string[] _oaiEndpoint = oaiUrls.Split(",");
         string[] _oaiKey = oaiKeys.Split(",");
@@ -76,8 +81,12 @@ public class Program
 
         foreach (var (url, key) in _oaiEndpoint.Zip(_oaiKey))
         {
-            AzureKeyCredential credentials = new(key);
-            AzureOpenAIClient azureClient = new(new Uri(url), credentials);
+            AzureOpenAIClient azureClient = (string.IsNullOrEmpty(oaiKeys)) switch
+            {
+               true => new AzureOpenAIClient(new Uri(url), new DefaultAzureCredential()),
+               false => new AzureOpenAIClient(new Uri(url), new AzureKeyCredential(key))
+            };
+            
             EmbeddingClient embeddingClient = azureClient.GetEmbeddingClient(_embeddingModel);
             _embeddingClients.Add(embeddingClient);
         }
@@ -106,9 +115,12 @@ public class Program
 
         Console.WriteLine("Getting rows count...");             
         var t = _vectorizer.GetDataCount();
+        Console.WriteLine($"Total rows to process: {t}");
+
+        bool chunkText = _vectorizer is DedicatedTableVectorizer;
+        Console.WriteLine($"Chunk text: {chunkText}");
 
         Console.WriteLine("Running:");        
-
         ProgressBar progressBar = new(1, "Processing data...", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray })
         {
             Message = $"Total rows to process: {t}",
@@ -138,7 +150,7 @@ public class Program
             {
                 Enumerable.Range(1, _maxTasks).ToList().ForEach(
                     n => tasks.Add(
-                        new Task(() => GetEmbeddings(n, childBar, () => updateProgress()))
+                        new Task(() => GetEmbeddings(n, chunkText, childBar, () => updateProgress()))
                         )
                     );
                 tasks.ForEach(t => t.Start());
@@ -161,10 +173,12 @@ public class Program
         }
     }
 
-    private static void GetEmbeddings(int taskId, ChildProgressBar childBar, Action updateProgress)
+    private static void GetEmbeddings(int taskId, bool chunkText, ChildProgressBar childBar, Action updateProgress)
     {
-        System.Diagnostics.Debug.Assert(_vectorizer != null); 
+        System.Diagnostics.Debug.Assert(_vectorizer != null);
 
+        int dimensions = Env.GetInt("EMBEDDING_DIMENSIONS", Defaults.EmbeddingDimensions);
+    
         Random random = new();
         EmbeddingClient embeddingClient = _embeddingClients[taskId % _embeddingClients.Count];
         //Task.Delay((taskId - 1) * 1500).Wait();
@@ -183,14 +197,21 @@ public class Program
                 while (_queue.TryDequeue(out EmbeddingData? data))
                 {
                     if (data == null) continue;
-                    rowCount +=1 ;
+                    rowCount += 1;
 
-                    var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], 2048);
-                    int chunkId = 0;
-                    foreach (var paragraph in paragraphs)
+                    if (chunkText)
+                    { 
+                        var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], 2048);
+                        int chunkId = 0;
+                        foreach (var paragraph in paragraphs)
+                        {
+                            chunkId += 1;
+                            batch.Add(new ChunkedText(data.RowId, chunkId, paragraph));
+                        }
+                    } else
                     {
-                        chunkId += 1;
-                        batch.Add(new ChunkedText(data.RowId, chunkId, paragraph));
+                        var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], 4096);                        
+                        batch.Add(new ChunkedText(data.RowId, 0, paragraphs[0]));
                     }
 
                     if (batch.Count >= _openaiBatchSize) break;
@@ -214,17 +235,22 @@ public class Program
                     {
                         try
                         {
-                            taskBar.Message = $"{msgPrefix} | Getting Embeddings...";
-                            var returnValue = embeddingClient.GenerateEmbeddings(inputTexts);
+                            taskBar.Message = $"{msgPrefix} | Getting Embeddings (d={dimensions})...";
+                            var returnValue = embeddingClient.GenerateEmbeddings(inputTexts, new EmbeddingGenerationOptions() { Dimensions = dimensions});
 
                             // Save embeddings to the database
                             taskBar.Message = $"{msgPrefix} | Saving Embeddings...";                            
                             foreach (var (embedding, index) in returnValue.Value.Select((embedding, index) => (embedding, index)))
                             {
+                                var properEmbedding = embedding.ToFloats();
+
+                                if (properEmbedding.Length != dimensions)
+                                    throw new ApplicationException($"Unexpected embedding dimensions {properEmbedding.Length} (expected {dimensions})");
+
                                 prevRowId = curRowId;
                                 curRowId = bc[index].RowId;
-                                _vectorizer.SaveEmbedding(curRowId, bc[index].Text, embedding.ToFloats().ToArray());
-                                taskBar.Tick();         
+                                _vectorizer.SaveEmbedding(curRowId, bc[index].Text, properEmbedding);
+                                taskBar.Tick();
                                 if (prevRowId != curRowId && prevRowId > -1) updateProgress();
                             }
 
@@ -250,8 +276,9 @@ public class Program
         }
         catch (Exception ex)
         {
+            Console.Clear();
             Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");
-            throw;
+            Environment.Exit(1);
         }
     }
 };

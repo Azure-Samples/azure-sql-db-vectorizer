@@ -5,9 +5,10 @@ using System.Collections.Concurrent;
 using System.Linq;
 using DotNetEnv;
 using System.Data;
+using Microsoft.Data.SqlTypes;
+using Microsoft.Data;
 
 namespace Azure.SQL.DB.Vectorizer;
-
 
 public class DedicatedTableInfo() : BaseTableInfo
 {
@@ -21,8 +22,7 @@ public class DedicatedTableInfo() : BaseTableInfo
 
 public class DedicatedTableVectorizer : BaseVectorizer
 {
-    private readonly string _connectionString = Env.GetString("MSSQL_CONNECTION_STRING");
-    private readonly int _dimensions = Env.GetInt("EMBEDDING_DIMENSIONS", 1536);
+    private readonly int _dimensions = Env.GetInt("EMBEDDING_DIMENSIONS", Defaults.EmbeddingDimensions);
     private readonly bool _saveTextChunks = Env.GetBool("SAVE_TEXT_CHUNKS");
 
     private readonly DedicatedTableInfo _tableInfo = new();
@@ -31,7 +31,7 @@ public class DedicatedTableVectorizer : BaseVectorizer
     {
         Console.WriteLine($"Save text chunks: {_saveTextChunks}");
 
-        using SqlConnection conn = new(_connectionString);
+        using SqlConnection conn = new(ConnectionString);
 
         var c = conn.ExecuteScalar<int>($"""
             select 
@@ -91,7 +91,7 @@ public class DedicatedTableVectorizer : BaseVectorizer
             select count(r.{_tableInfo.IdColumn}) from cte as r 
         """;
 
-        using SqlConnection conn = new(_connectionString);
+        using SqlConnection conn = new(ConnectionString);
         var c = conn.ExecuteScalar<int>(sql);
 
         return c;
@@ -116,7 +116,7 @@ public class DedicatedTableVectorizer : BaseVectorizer
 
         try
         {
-            using SqlConnection conn = new(_connectionString);
+            using SqlConnection conn = new(ConnectionString);
             var reader = conn.ExecuteReader(sql);
 
             while (reader.Read())
@@ -135,26 +135,42 @@ public class DedicatedTableVectorizer : BaseVectorizer
         return queue.Count;
     }
 
-    public override void SaveEmbedding(int id, string text, float[] embedding)
+    public override void SaveEmbedding(int id, string text, ReadOnlyMemory<float> embedding)
     {
-        var e = "[" + string.Join(",", embedding.ToArray()) + "]";
+        SqlParameter e = embedding.Length switch
+        {
+            > 1998 => new SqlParameter("@e", SqlDbType.VarChar) { Value = "[" + string.Join(",", embedding.ToArray()) + "]" },
+            _ => new SqlParameter("@e", SqlDbTypeExtensions.Vector) { Value = new SqlVector<float>(embedding) }
+        };
 
-        using SqlConnection conn = new(_connectionString);
+        using SqlConnection conn = new(ConnectionString);
+        conn.Open();
         if (_saveTextChunks)
         {
-            conn.Execute($"""
+            using SqlCommand command = new SqlCommand($"""
                 insert into
                     {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, chunk_text, {_tableInfo.EmbeddingColumn})
                 values
-                    (@id, @t, cast(@e as vector({_dimensions})))
-            """, new { @id, @t = text, @e });
-        } else {
-            conn.Execute($"""
+                    (@id, @t, @e)
+            """, conn);
+            command.Parameters.Add(new SqlParameter("@id", SqlDbType.Int) { Value = id });
+            command.Parameters.Add(new SqlParameter("@t", SqlDbType.NVarChar) { Value = text });
+            command.Parameters.Add(e);
+
+            command.ExecuteNonQuery();
+        }
+        else
+        {
+            using SqlCommand command = new SqlCommand($"""
                 insert into
                     {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, {_tableInfo.EmbeddingColumn})
                 values
-                    (@id, cast(@e as vector({_dimensions})))
-            """, new { @id, @e });
-        }
+                    (@id, @e)
+            """, conn);
+            command.Parameters.Add(new SqlParameter("@id", SqlDbType.Int) { Value = id });
+            command.Parameters.Add(e);
+
+            command.ExecuteNonQuery();
+        }       
     }
 }
