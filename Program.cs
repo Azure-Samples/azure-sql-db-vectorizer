@@ -1,15 +1,18 @@
-﻿using System;
-using Azure.AI.OpenAI;
-using OpenAI.Embeddings;
-using DotNetEnv;
-using System.Collections.Concurrent;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Linq;
-using ShellProgressBar;
-using Microsoft.SemanticKernel.Text;
-using System.Data;
+﻿using Azure.AI.OpenAI;
 using Azure.Identity;
+using DotNetEnv;
+using Microsoft.SemanticKernel.Text;
+using OpenAI.Embeddings;
+using ShellProgressBar;
+using System;
+using System.ClientModel;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
+using static System.Net.WebRequestMethods;
 
 #pragma warning disable SKEXP0050
 
@@ -41,6 +44,10 @@ public class Program
         if (Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
             Console.Clear();
 
+        var assembly = Assembly.GetExecutingAssembly();
+        var version = assembly.GetName().Version;
+        
+        Console.WriteLine($"Azure SQL DB Vectorizer v{version}");
         Console.WriteLine("Starting...");
 
         if (args.Length > 0)
@@ -229,7 +236,7 @@ public class Program
                     List<string> inputTexts = bc.Select(c => c.Text).ToList();
 
                     // Get embeddings for the batch
-                    int attempts = 0;                    
+                    int attempts = 0;
                     string msgPrefix = $"Task {taskId} | Rows {rowCount} | Chunks {batch.Count}";
                     while (attempts < 3)
                     {
@@ -256,17 +263,12 @@ public class Program
 
                             attempts = int.MaxValue;
                         }
-                        catch (RequestFailedException ex)
+                        catch (Exception ex) when (IsThrottledException(ex))
                         {
-                            if (ex.ErrorCode == null) throw;
-                            if (ex.ErrorCode.Contains("429"))
-                            {
-                                attempts += 1;
-                                taskBar.Message = $"{msgPrefix} | Throttled ({attempts}).";
-                                Task.Delay(2000).Wait();
-                            }
-                            else throw;
-                        }
+                            attempts += 1;
+                            taskBar.Message = $"{msgPrefix} | Throttled ({attempts}).";
+                            Task.Delay(10000).Wait();
+                        }                       
                     }
 
                     openAIBatchNumber += 1;
@@ -280,6 +282,16 @@ public class Program
             Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");
             Environment.Exit(1);
         }
+    }
+
+    private static bool IsThrottledException(Exception ex)
+    {
+        return ex switch
+        {
+            RequestFailedException rfe when rfe.ErrorCode?.Contains("429") == true => true,
+            ClientResultException cre when cre.Message.Contains("429") => true,
+            _ => false
+        };
     }
 };
 
