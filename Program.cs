@@ -23,6 +23,20 @@ public static class Defaults
     public static readonly int EmbeddingDimensions = 1536;
 }
 
+public class EmbeddingConfiguration
+{
+    public bool ChunkText { get; init; }
+    public int Dimensions { get; init; }
+    public int ChunkMaxLength { get; init; }
+
+    public EmbeddingConfiguration(int dimensions, bool chunkText, int chunkMaxLength)
+    {
+        ChunkText = chunkText;
+        Dimensions = dimensions;
+        ChunkMaxLength = chunkMaxLength;
+    }
+}
+
 public class Program
 {
 
@@ -127,6 +141,12 @@ public class Program
         bool chunkText = _vectorizer is DedicatedTableVectorizer;
         Console.WriteLine($"Chunk text: {chunkText}");
 
+        // Create embedding configuration
+        int dimensions = Env.GetInt("EMBEDDING_DIMENSIONS", Defaults.EmbeddingDimensions);
+        int chunkMaxLength = Env.GetInt("CHUNK_MAX_LENGTH", 2048);
+        var embeddingConfig = new EmbeddingConfiguration(dimensions, chunkText, chunkMaxLength);
+        Console.WriteLine($"Embedding dimensions: {embeddingConfig.Dimensions}, max tokens: {embeddingConfig.ChunkMaxLength}");
+
         Console.WriteLine("Running:");        
         ProgressBar progressBar = new(1, "Processing data...", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray })
         {
@@ -157,7 +177,7 @@ public class Program
             {
                 Enumerable.Range(1, _maxTasks).ToList().ForEach(
                     n => tasks.Add(
-                        new Task(() => GetEmbeddings(n, chunkText, childBar, () => updateProgress()))
+                        new Task(() => GetEmbeddings(n, embeddingConfig, childBar, () => updateProgress()))
                         )
                     );
                 tasks.ForEach(t => t.Start());
@@ -180,12 +200,10 @@ public class Program
         }
     }
 
-    private static void GetEmbeddings(int taskId, bool chunkText, ChildProgressBar childBar, Action updateProgress)
+    private static void GetEmbeddings(int taskId, EmbeddingConfiguration embeddingConfig, ChildProgressBar childBar, Action updateProgress)
     {
         System.Diagnostics.Debug.Assert(_vectorizer != null);
 
-        int dimensions = Env.GetInt("EMBEDDING_DIMENSIONS", Defaults.EmbeddingDimensions);
-    
         Random random = new();
         EmbeddingClient embeddingClient = _embeddingClients[taskId % _embeddingClients.Count];
         //Task.Delay((taskId - 1) * 1500).Wait();
@@ -206,9 +224,9 @@ public class Program
                     if (data == null) continue;
                     rowCount += 1;
 
-                    if (chunkText)
+                    var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], embeddingConfig.ChunkMaxLength);
+                    if (embeddingConfig.ChunkText)
                     { 
-                        var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], 2048);
                         int chunkId = 0;
                         foreach (var paragraph in paragraphs)
                         {
@@ -217,7 +235,6 @@ public class Program
                         }
                     } else
                     {
-                        var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], 4096);                        
                         batch.Add(new ChunkedText(data.RowId, 0, paragraphs[0]));
                     }
 
@@ -242,8 +259,8 @@ public class Program
                     {
                         try
                         {
-                            taskBar.Message = $"{msgPrefix} | Getting Embeddings (d={dimensions})...";
-                            var returnValue = embeddingClient.GenerateEmbeddings(inputTexts, new EmbeddingGenerationOptions() { Dimensions = dimensions});
+                            taskBar.Message = $"{msgPrefix} | Getting Embeddings (d={embeddingConfig.Dimensions})...";
+                            var returnValue = embeddingClient.GenerateEmbeddings(inputTexts, new EmbeddingGenerationOptions() { Dimensions = embeddingConfig.Dimensions});
 
                             // Save embeddings to the database
                             taskBar.Message = $"{msgPrefix} | Saving Embeddings...";                            
@@ -251,8 +268,8 @@ public class Program
                             {
                                 var properEmbedding = embedding.ToFloats();
 
-                                if (properEmbedding.Length != dimensions)
-                                    throw new ApplicationException($"Unexpected embedding dimensions {properEmbedding.Length} (expected {dimensions})");
+                                if (properEmbedding.Length != embeddingConfig.Dimensions)
+                                    throw new ApplicationException($"Unexpected embedding dimensions {properEmbedding.Length} (expected {embeddingConfig.Dimensions})");
 
                                 prevRowId = curRowId;
                                 curRowId = bc[index].RowId;
