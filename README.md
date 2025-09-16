@@ -10,13 +10,19 @@
 
 Quickly generate embeddings from data in Azure SQL. Point to the table that has text that must to turned into embeddings, configure the `.env` file and run the tool, to get text vectorized into embedding as fast as possible.
 
-![](./_assets/high-level-architecture.jpg)
+![Scale-out vectorizer architecture](./_assets/high-level-architecture.jpg)
 
 Embedding will be generated using the OpenAI API. The tool will connect to the Azure SQL Database, read the text from the specified table, send the text to the OpenAI API, and store the embeddings back in the table, in a dedicated table. If the read text is too big to fit a single embedding API call, the tool will split the text into chunks and send each chunk to the API.
 
-Chunking is done using the [TextChunker.SplitPlainTextParagraphs](https://learn.microsoft.com/en-us/dotnet/api/microsoft.semantickernel.text.textchunker.splitplaintextparagraphs?view=semantic-kernel-dotnet) method from the [Microsoft.SemanticKernel.Text](https://www.nuget.org/packages/Microsoft.SemanticKernel.Text/) package. Maximum number of token per paragraph is set to 2048.
+Chunking is done using the [TextChunker.SplitPlainTextParagraphs](https://learn.microsoft.com/en-us/dotnet/api/microsoft.semantickernel.text.textchunker.splitplaintextparagraphs?view=semantic-kernel-dotnet) method from the [Microsoft.SemanticKernel.Text](https://www.nuget.org/packages/Microsoft.SemanticKernel.Text/) package. Maximum number of token per paragraph is set to 2048 but can be changed by setting the `CHUNK_MAX_LENGTH` environment variable.
 
-Embeddings will be stored into a dedicated table. If the table doesn't exist, the tool can create a new table to store the embeddings. The relationship between the original table and the table that stores the embeddings is done using the `id` / `parent_id` column and the relationship is a 1:N relationship, as each row in the original table will have one or more rows in the table that stores the embeddings due to the chunking process.
+## Embeddings store in the same table as the source text
+
+This is not the recommended approach as explained here: [Efficiently and Elegantly Modeling Embeddings in Azure SQL and SQL Server](https://devblogs.microsoft.com/azure-sql/efficiently-and-elegantly-modeling-embeddings-in-azure-sql-and-sql-server/),  but if you want to store the embeddings in the same table as the source text, you can do that by setting `DEDICATED_EMBEDDINGS_TABLE` environment variable to nothing, or simply omitting it from the environment file.
+
+## Dedicated table for embeddings
+
+By setting a value for the environment variable `DEDICATED_EMBEDDINGS_TABLE`, the tool will use a dedicated table to store the embeddings. If the table doesn't exist, the tool can create a new table to store the embeddings. The relationship between the original table and the table that stores the embeddings is done using the `id` / `parent_id` column and the relationship is a 1:N relationship, as each row in the original table will have one or more rows in the table that stores the embeddings due to the chunking process.
 
 Rows from the database are processed in batch of 5000 rows. Those rows are read into a queue and then, by default, two threads per each OpenAI URL will pull data from the queue, chunk it if needed, and then send the embedding request to the OpenAI API. Each API call will batch togheter up to 50 text chunks to be vectorized.
 
@@ -38,13 +44,13 @@ for more samples, also, check the following repositories:
 
 ## Usage
 
-Just run 
+Just run:
 
 ```bash
 dotnet run
 ```
 
-or 
+or
 
 ```bash 
 dotnet run -- .my-env-file
@@ -52,13 +58,13 @@ dotnet run -- .my-env-file
 
 if you want to use a different `.env` file.
 
-![](./_assets/sample-screenshot.jpg)
+![A screenshot of the tool in action](./_assets/sample-screenshot.jpg)
 
 ## Configuration
 
 All configuration options are read from environment variables. Create a `.env` file starting from the `.env.sample` and specifiy values as per the following instructions:
 
-### OPENAI_URL & OPENAI_KEY ###
+### OPENAI_URL & OPENAI_KEY
 
 The URL and the API Key used to connect to Azure OpenAI or OpenAI. For example:
 
@@ -74,7 +80,9 @@ OPENAI_URL="https://open-ai-test-1.openai.azure.com/,https://open-ai-test-2.open
 OPENAI_KEY="a12...bdf, d02...4ee"
 ```
 
-### OPENAI_EMBEDDING_DEPLOYMENT_NAME ###
+if the `OPENAI_KEY` is empty, the tool will try to use [DefaultAzureCredential](https://learn.microsoft.com/en-us/dotnet/api/azure.identity.defaultazurecredential?view=azure-dotnet) to authenticate against Azure OpenAI. The user must have the `Cognitive Services User` role assigned at the Azure OpenAI resource level in order to be able to access embedding models: [Role-based access control for Azure OpenAI in Azure AI Foundry Models](https://learn.microsoft.com/azure/ai-foundry/openai/how-to/role-based-access-control)
+
+### OPENAI_EMBEDDING_DEPLOYMENT_NAME
 
 The name of the deployment that has the model that will be used to generate the embeddings. For example:
 
@@ -82,9 +90,9 @@ The name of the deployment that has the model that will be used to generate the 
 OPENAI_EMBEDDING_DEPLOYMENT_NAME="my-text-embedding-3-small"
 ```
 
-All OpenAI url defined in the `OPENAI_URL` must have the same deployment name.
+All OpenAI Urls defined in the `OPENAI_URL` must have the same deployment name.
 
-### EMBEDDING_DIMENSIONS ###
+### EMBEDDING_DIMENSIONS
 
 The number of dimensions of the embeddings. For example:
 
@@ -92,7 +100,7 @@ The number of dimensions of the embeddings. For example:
 EMBEDDING_DIMENSIONS=1536
 ```
 
-### MSSQL_CONNECTION_STRING ###
+### MSSQL_CONNECTION_STRING
 
 The connection string to the Azure SQL Database. For example:
 
@@ -100,7 +108,7 @@ The connection string to the Azure SQL Database. For example:
 MSSQL_CONNECTION_STRING="Server=my-server.database.windows.net;Database=sampledb;Authentication=Active Directory Default;"
 ```
 
-### TABLE_NAME ###
+### TABLE_NAME
 
 The name of the table that contains the text that must be turned into embeddings. For example:
 
@@ -108,7 +116,7 @@ The name of the table that contains the text that must be turned into embeddings
 TABLE_NAME="dbo.wikipedia_articles"
 ```
 
-### ID_COLUMN_NAME ###
+### ID_COLUMN_NAME
 
 The name of the column that contains the unique identifier for each row in the table. For example:
 
@@ -118,7 +126,7 @@ ID_COLUMN_NAME="id"
 
 The id column must be an integer.
 
-### CONTENT_COLUMN_NAME ###
+### CONTENT_COLUMN_NAME
 
 The name of the column that contains the text that must be turned into embeddings. For example:
 
@@ -126,7 +134,7 @@ The name of the column that contains the text that must be turned into embedding
 CONTENT_COLUMN_NAME="title"
 ```
 
-### DEDICATED_EMBEDDINGS_TABLE ###
+### DEDICATED_EMBEDDINGS_TABLE 
 
 The name of the table that will store the embeddings. For example:
 
@@ -134,7 +142,7 @@ The name of the table that will store the embeddings. For example:
 DEDICATED_EMBEDDINGS_TABLE="dbo.wikipedia_articles_embeddings"
 ```
 
-### EMBEDDING_COLUMN_NAME ###
+### EMBEDDING_COLUMN_NAME
 
 The name of the column that will contain the embeddings. For example:
 
@@ -142,7 +150,7 @@ The name of the column that will contain the embeddings. For example:
 EMBEDDING_COLUMN_NAME="title_vector_text3"
 ```
 
-### AUTO_CREATE_DEDICATED_EMBEDDINGS_TABLE ###
+### AUTO_CREATE_DEDICATED_EMBEDDINGS_TABLE
 
 If set to `True`, the tool will create a new table to store the embeddings. For example:
 
@@ -152,7 +160,7 @@ AUTO_CREATE_DEDICATED_EMBEDDINGS_TABLE=True
 
 If the table doesn't exist, the tool will create a new table to store the embeddings.
 
-```
+```sql
 create table <DEDICATED_EMBEDDINGS_TABLE>
 (
     id int identity(1,1) primary key nonclustered,
@@ -161,7 +169,7 @@ create table <DEDICATED_EMBEDDINGS_TABLE>
 );            
 ```
 
-### SAVE_TEXT_CHUNKS ###    
+### SAVE_TEXT_CHUNKS
 
 If set to `True`, the tool will save the text chunks that were sent to the OpenAI API. For example:
 
@@ -171,7 +179,7 @@ SAVE_TEXT_CHUNKS=True
 
 Tech chunks will be saved in a column named `chunk_text` in the same table that stores the embeddings.
 
-```
+```sql
 create table <DEDICATED_EMBEDDINGS_TABLE>
 (
     id int identity(1,1) primary key nonclustered,
@@ -180,6 +188,16 @@ create table <DEDICATED_EMBEDDINGS_TABLE>
     <EMBEDDING_COLUMN_NAME> vector(<EMBEDDING_DIMENSIONS>) not null
 );            
 ```
+
+### CHUNK_MAX_LENGTH
+
+This parameter controls the maximum length of each text chunk that will be sent to the OpenAI API. For example:
+
+```bash
+CHUNK_MAX_LENGTH=2048
+```
+
+It is *important* to understand that text is *always* chunked, even when storing the data in the same table as the source text. This is because the OpenAI API has a limit on the maximum number of tokens that can be sent in a single request. Set this value according to the maximum number of tokens that the embedding model can handle. For example for `text-embedding-3-small` the maxium token context is 8192 as per OpenAI's documentation: [Vector embeddings](https://platform.openai.com/docs/guides/embeddings). The default value is 2048.
 
 ## Usage Sample
 
