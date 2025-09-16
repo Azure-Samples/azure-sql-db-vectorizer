@@ -30,7 +30,7 @@ Once the queue is empty, the process will start again until all rows in the sour
 
 ## Vector support in Azure SQL
 
-More details vector support in Azure SQL can be found here: 
+More details vector support in Azure SQL can be found here:
 
 - [Overview of vector search and vector indexes in the SQL Database Engine](https://learn.microsoft.com/en-us/sql/relational-databases/vectors/vectors-sql-server?view=azuresqldb-current)
 - [Vector Data Type](https://learn.microsoft.com/en-us/sql/t-sql/data-types/vector-data-type?view=azuresqldb-current&tabs=csharp)
@@ -52,7 +52,7 @@ dotnet run
 
 or
 
-```bash 
+```bash
 dotnet run -- .my-env-file
 ```
 
@@ -134,11 +134,11 @@ The name of the column that contains the text that must be turned into embedding
 CONTENT_COLUMN_NAME="title"
 ```
 
-### DEDICATED_EMBEDDINGS_TABLE 
+### DEDICATED_EMBEDDINGS_TABLE
 
 The name of the table that will store the embeddings. For example:
 
-```bash 
+```bash
 DEDICATED_EMBEDDINGS_TABLE="dbo.wikipedia_articles_embeddings"
 ```
 
