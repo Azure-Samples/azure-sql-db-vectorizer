@@ -80,7 +80,7 @@ OPENAI_URL="https://open-ai-test-1.openai.azure.com/,https://open-ai-test-2.open
 OPENAI_KEY="a12...bdf, d02...4ee"
 ```
 
-if the `OPENAI_KEY` is empty, the tool will try to use [DefaultAzureCredential](https://learn.microsoft.com/en-us/dotnet/api/azure.identity.defaultazurecredential?view=azure-dotnet) to authenticate against Azure OpenAI. The user must have the `Cognitive Services User` role assigned at the Azure OpenAI resource level in order to be able to access embedding models: [Role-based access control for Azure OpenAI in Azure AI Foundry Models](https://learn.microsoft.com/azure/ai-foundry/openai/how-to/role-based-access-control)
+if the `OPENAI_KEY` is empty, the tool will try to use [DefaultAzureCredential](https://learn.microsoft.com/en-us/dotnet/api/azure.identity.defaultazurecredential?view=azure-dotnet) to authenticate against Azure OpenAI. The user must have the `Cognitive Services OpenAI User` role assigned at the Azure OpenAI resource level in order to be able to access embedding models: [Role-based access control for Azure OpenAI in Azure AI Foundry Models](https://learn.microsoft.com/azure/ai-foundry/openai/how-to/role-based-access-control)
 
 ### OPENAI_EMBEDDING_DEPLOYMENT_NAME
 
