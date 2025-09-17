@@ -87,12 +87,14 @@ public class Program
         string oaiUrls = Env.GetString("OPENAI_URL");
         string oaiKeys = Env.GetString("OPENAI_KEY") ?? string.Empty;
 
+        string[] _oaiEndpoint = oaiUrls.Split(",");
+
         if (string.IsNullOrEmpty(oaiKeys))
         {
             Console.WriteLine("No OPENAI_KEY provided. Using DefaultAzureCredential.");
+            oaiKeys = string.Join(",", Enumerable.Repeat(string.Empty, _oaiEndpoint.Length));
         }
 
-        string[] _oaiEndpoint = oaiUrls.Split(",");
         string[] _oaiKey = oaiKeys.Split(",");
 
         if (_oaiEndpoint.Length != _oaiKey.Length)
@@ -102,7 +104,7 @@ public class Program
 
         foreach (var (url, key) in _oaiEndpoint.Zip(_oaiKey))
         {
-            AzureOpenAIClient azureClient = (string.IsNullOrEmpty(oaiKeys)) switch
+            AzureOpenAIClient azureClient = string.IsNullOrEmpty(key) switch
             {
                true => new AzureOpenAIClient(new Uri(url), new DefaultAzureCredential()),
                false => new AzureOpenAIClient(new Uri(url), new AzureKeyCredential(key))
