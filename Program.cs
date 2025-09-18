@@ -46,7 +46,7 @@ public class Program
     private static readonly List<Task> tasks = [];
     private static int _maxTasks = 0; // 0 to auto-detect
 
-    private static readonly List<EmbeddingClient> _embeddingClients = [];
+    private static readonly Dictionary<Uri, EmbeddingClient> _embeddingClients = new();
     private static readonly int _openaiBatchSize = 50;
     private static string _embeddingModel = "text-embedding-3-small";
 
@@ -104,14 +104,16 @@ public class Program
 
         foreach (var (url, key) in _oaiEndpoint.Zip(_oaiKey))
         {
+            var uri = new Uri(url);
+            
             AzureOpenAIClient azureClient = string.IsNullOrEmpty(key) switch
             {
-               true => new AzureOpenAIClient(new Uri(url), new DefaultAzureCredential()),
-               false => new AzureOpenAIClient(new Uri(url), new AzureKeyCredential(key))
+               true => new AzureOpenAIClient(uri, new DefaultAzureCredential()),
+               false => new AzureOpenAIClient(uri, new AzureKeyCredential(key))
             };
             
             EmbeddingClient embeddingClient = azureClient.GetEmbeddingClient(_embeddingModel);
-            _embeddingClients.Add(embeddingClient);
+            _embeddingClients.Add(uri, embeddingClient);
         }
 
         _maxTasks = _maxTasks == 0 ? _embeddingClients.Count * 2 : _maxTasks;
@@ -207,7 +209,11 @@ public class Program
         System.Diagnostics.Debug.Assert(_vectorizer != null);
 
         Random random = new();
-        EmbeddingClient embeddingClient = _embeddingClients[taskId % _embeddingClients.Count];
+        
+        var e = _embeddingClients.ElementAt(taskId % _embeddingClients.Count);
+        EmbeddingClient embeddingClient = e.Value;
+        Uri embeddingClientUri = e.Key;
+
         //Task.Delay((taskId - 1) * 1500).Wait();
         try
         {
@@ -228,7 +234,7 @@ public class Program
 
                     var paragraphs = TextChunker.SplitPlainTextParagraphs([data.Text], embeddingConfig.ChunkMaxLength);
                     if (embeddingConfig.ChunkText)
-                    { 
+                    {
                         int chunkId = 0;
                         foreach (var paragraph in paragraphs)
                         {
@@ -241,7 +247,7 @@ public class Program
                     }
 
                     if (batch.Count >= _openaiBatchSize) break;
-                }                
+                }
                 taskBar.MaxTicks = batch.Count;
 
                 // Split the batch in smaller sets if size is greater than max batch size
@@ -261,11 +267,11 @@ public class Program
                     {
                         try
                         {
-                            taskBar.Message = $"{msgPrefix} | Getting Embeddings (d={embeddingConfig.Dimensions})...";
-                            var returnValue = embeddingClient.GenerateEmbeddings(inputTexts, new EmbeddingGenerationOptions() { Dimensions = embeddingConfig.Dimensions});
+                            taskBar.Message = $"{msgPrefix} | Getting Embeddings (d={embeddingConfig.Dimensions}, s={embeddingClientUri.Host})...";
+                            var returnValue = embeddingClient.GenerateEmbeddings(inputTexts, new EmbeddingGenerationOptions() { Dimensions = embeddingConfig.Dimensions });
 
                             // Save embeddings to the database
-                            taskBar.Message = $"{msgPrefix} | Saving Embeddings...";                            
+                            taskBar.Message = $"{msgPrefix} | Saving Embeddings...";
                             foreach (var (embedding, index) in returnValue.Value.Select((embedding, index) => (embedding, index)))
                             {
                                 var properEmbedding = embedding.ToFloats();
@@ -287,12 +293,12 @@ public class Program
                             attempts += 1;
                             taskBar.Message = $"{msgPrefix} | Throttled ({attempts}).";
                             Task.Delay(10000).Wait();
-                        }                       
+                        }
                     }
 
                     openAIBatchNumber += 1;
-                }             
-                updateProgress();                                                                           
+                }
+                updateProgress();
             } while (!_queue.IsEmpty);
         }
         catch (Exception ex)
