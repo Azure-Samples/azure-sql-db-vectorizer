@@ -292,7 +292,7 @@ public class Program
                         {
                             attempts += 1;
                             taskBar.Message = $"{msgPrefix} | Throttled ({attempts}).";
-                            Task.Delay(10000).Wait();
+                            Task.Delay(20000).Wait();
                         }
                     }
 
