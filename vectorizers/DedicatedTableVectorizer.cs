@@ -147,7 +147,7 @@ public class DedicatedTableVectorizer : BaseVectorizer
         conn.Open();
         if (_saveTextChunks)
         {
-            using SqlCommand command = new SqlCommand($"""
+            using SqlCommand command = new($"""
                 insert into
                     {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, chunk_text, {_tableInfo.EmbeddingColumn})
                 values
@@ -161,7 +161,7 @@ public class DedicatedTableVectorizer : BaseVectorizer
         }
         else
         {
-            using SqlCommand command = new SqlCommand($"""
+            using SqlCommand command = new($"""
                 insert into
                     {_tableInfo.DedicatedEmbeddingsTable} ({_tableInfo.ParentIdColumnname}, {_tableInfo.EmbeddingColumn})
                 values
@@ -171,6 +171,7 @@ public class DedicatedTableVectorizer : BaseVectorizer
             command.Parameters.Add(e);
 
             command.ExecuteNonQuery();
-        }       
+        }    
+        conn.Close();   
     }
 }

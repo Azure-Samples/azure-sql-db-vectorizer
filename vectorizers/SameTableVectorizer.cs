@@ -2,10 +2,9 @@ using System;
 using Microsoft.Data.SqlClient;
 using Dapper;
 using System.Collections.Concurrent;
-using System.Linq;
-using DotNetEnv;
-using System.Data;
 using Microsoft.Data.SqlTypes;
+using Microsoft.Data;
+using System.Data;
 
 namespace Azure.SQL.DB.Vectorizer;
 
@@ -101,20 +100,26 @@ public class SameTableVectorizer : BaseVectorizer
 
     public override void SaveEmbedding(int id, string text, ReadOnlyMemory<float> embedding)
     {
+        SqlParameter e = embedding.Length switch
+        {
+            > 1998 => new SqlParameter("@e", SqlDbType.VarChar) { Value = "[" + string.Join(",", embedding.ToArray()) + "]" },
+            _ => new SqlParameter("@e", SqlDbTypeExtensions.Vector) { Value = new SqlVector<float>(embedding) }
+        };
+
         using SqlConnection conn = new(ConnectionString);
+        
+        conn.Open();
 
-        DynamicParameters dynamicParameters = new();
-        dynamicParameters.Add("@id", id);
-
-        if (embedding.Length > 1998)
-            dynamicParameters.Add("@e", "[" + string.Join(",", embedding.ToArray()) + "]");
-        else
-            dynamicParameters.Add("@e", new SqlVector<float>(embedding));
-
-        conn.Execute($"""
+        using SqlCommand command = new($"""
             update {_tableInfo.Table} 
             set {_tableInfo.EmbeddingColumn} = @e
             where {_tableInfo.IdColumn} = @id
-        """, dynamicParameters);
+            """, conn);
+            command.Parameters.Add(new SqlParameter("@id", SqlDbType.Int) { Value = id });
+            command.Parameters.Add(e);
+
+        command.ExecuteNonQuery();
+        
+        conn.Close();
     }
 }

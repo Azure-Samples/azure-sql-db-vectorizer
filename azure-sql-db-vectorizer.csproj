@@ -3,7 +3,7 @@
   <PropertyGroup>
     <AssemblyVersion>1.1.3</AssemblyVersion>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>Azure.SQL.DB.Vectorizer</RootNamespace>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -11,8 +11,8 @@
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="DotnetEnv" Version="3.1.1" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
-    <PackageReference Include="Microsoft.SemanticKernel" Version="1.64.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.2" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.67.1" />
     <PackageReference Include="ShellProgressBar" Version="5.2.0" />
   </ItemGroup>
 

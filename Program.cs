@@ -149,7 +149,10 @@ public class Program
         int dimensions = Env.GetInt("EMBEDDING_DIMENSIONS", Defaults.EmbeddingDimensions);
         int chunkMaxLength = Env.GetInt("CHUNK_MAX_LENGTH", 2048);
         var embeddingConfig = new EmbeddingConfiguration(dimensions, chunkText, chunkMaxLength);
-        Console.WriteLine($"Embedding dimensions: {embeddingConfig.Dimensions}, max tokens: {embeddingConfig.ChunkMaxLength}");
+        if (chunkText)
+            Console.WriteLine($"Embedding dimensions: {embeddingConfig.Dimensions}, max chunk length: {embeddingConfig.ChunkMaxLength}");
+        else
+            Console.WriteLine($"Embedding dimensions: {embeddingConfig.Dimensions}");
 
         Console.WriteLine("Running:");        
         ProgressBar progressBar = new(1, "Processing data...", new ProgressBarOptions { BackgroundColor = ConsoleColor.DarkGray })
