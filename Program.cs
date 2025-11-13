@@ -46,7 +46,7 @@ public class Program
     private static int _maxTasks = 0; // 0 to auto-detect
 
     private static readonly Dictionary<Uri, EmbeddingClient> _embeddingClients = new();
-    private static readonly int _openaiBatchSize = 50;
+    private static readonly int _openaiBatchSize = 100;
     private static string _embeddingModel = "text-embedding-3-small";
 
     private static IVectorizer? _vectorizer; 
@@ -217,6 +217,7 @@ public class Program
         Uri embeddingClientUri = e.Key;
 
         //Task.Delay((taskId - 1) * 1500).Wait();
+        var consoleCleared = false;
         try
         {
             do
@@ -301,9 +302,11 @@ public class Program
                         {
                             // Log the offending text
                             if (Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
+                            {
                                 Console.Clear();
+                                consoleCleared = true;
+                            }
                             Console.WriteLine($"[{taskId:00}] !Error!");
-                            Console.WriteLine($"[{taskId:00}] !Error! Exception Type:{ex.GetType()} Message:{ex.Message}");
                             Console.WriteLine($"[{taskId:00}] !Error! Offending texts:");
                             foreach (var i in inputTexts)
                             {
@@ -320,8 +323,8 @@ public class Program
         }
         catch (Exception ex)
         {
-            // if (Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
-            //     Console.Clear();
+            if (!consoleCleared && Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
+                Console.Clear();
             Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");
             Console.WriteLine($"[{taskId:00}] !Error! StackTrace:{ex.StackTrace}");
             Environment.Exit(1);
