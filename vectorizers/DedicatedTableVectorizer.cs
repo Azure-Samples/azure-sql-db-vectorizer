@@ -89,6 +89,10 @@ public class DedicatedTableVectorizer : BaseVectorizer
                     e.id is null
             )
             select count(r.{_tableInfo.IdColumn}) from cte as r 
+            where
+                trim({_tableInfo.TextColumn}) != '' 
+            and
+                {_tableInfo.TextColumn} is not null
         """;
 
         using SqlConnection conn = new(ConnectionString);
@@ -112,6 +116,10 @@ public class DedicatedTableVectorizer : BaseVectorizer
                 )
                 select r.{_tableInfo.IdColumn}, r.{_tableInfo.TextColumn} from {_tableInfo.Table} as r 
                 where exists (select * from cte c where c.{_tableInfo.IdColumn} = r.{_tableInfo.IdColumn})
+                and
+                    trim({_tableInfo.TextColumn}) != '' 
+                and
+                    {_tableInfo.TextColumn} is not null
             """;
 
         try

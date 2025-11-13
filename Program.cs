@@ -12,7 +12,6 @@ using System.Data;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
-using static System.Net.WebRequestMethods;
 
 #pragma warning disable SKEXP0050
 
@@ -242,6 +241,7 @@ public class Program
                         foreach (var paragraph in paragraphs)
                         {
                             chunkId += 1;
+
                             batch.Add(new ChunkedText(data.RowId, chunkId, paragraph));
                         }
                     } else
@@ -266,7 +266,7 @@ public class Program
                     // Get embeddings for the batch
                     int attempts = 0;
                     string msgPrefix = $"Task {taskId} | Rows {rowCount} | Chunks {batch.Count}";
-                    while (attempts < 3)
+                    while (attempts < 3 && inputTexts.Count > 0)
                     {
                         try
                         {
@@ -297,6 +297,20 @@ public class Program
                             taskBar.Message = $"{msgPrefix} | Throttled ({attempts}).";
                             Task.Delay(20000).Wait();
                         }
+                        catch (Exception ex)
+                        {
+                            // Log the offending text
+                            if (Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
+                                Console.Clear();
+                            Console.WriteLine($"[{taskId:00}] !Error!");
+                            Console.WriteLine($"[{taskId:00}] !Error! Exception Type:{ex.GetType()} Message:{ex.Message}");
+                            Console.WriteLine($"[{taskId:00}] !Error! Offending texts:");
+                            foreach (var i in inputTexts)
+                            {
+                                Console.WriteLine(i);
+                            }
+                            throw;
+                        }
                     }
 
                     openAIBatchNumber += 1;
@@ -306,8 +320,10 @@ public class Program
         }
         catch (Exception ex)
         {
-            Console.Clear();
+            // if (Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
+            //     Console.Clear();
             Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");
+            Console.WriteLine($"[{taskId:00}] !Error! StackTrace:{ex.StackTrace}");
             Environment.Exit(1);
         }
     }

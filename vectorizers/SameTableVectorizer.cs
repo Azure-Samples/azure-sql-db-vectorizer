@@ -57,6 +57,10 @@ public class SameTableVectorizer : BaseVectorizer
                 {_tableInfo.Table}         
             where
                 {_tableInfo.EmbeddingColumn} is null
+            and
+                trim({_tableInfo.TextColumn}) != '' 
+            and
+                {_tableInfo.TextColumn} is not null
         """;
 
         using SqlConnection conn = new(ConnectionString);
@@ -75,6 +79,10 @@ public class SameTableVectorizer : BaseVectorizer
                 {_tableInfo.Table} as s                    
             where
                 {_tableInfo.EmbeddingColumn} is null
+            and
+                trim({_tableInfo.TextColumn}) != '' 
+            and
+                {_tableInfo.TextColumn} is not null
             """;
 
         try
