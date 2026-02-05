@@ -10,6 +10,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Net.Http;
 using System.Reflection;
 using System.Threading.Tasks;
 
@@ -245,7 +246,8 @@ public class Program
 
                             batch.Add(new ChunkedText(data.RowId, chunkId, paragraph));
                         }
-                    } else
+                    }
+                    else
                     {
                         batch.Add(new ChunkedText(data.RowId, 0, paragraphs[0]));
                     }
@@ -298,20 +300,21 @@ public class Program
                             taskBar.Message = $"{msgPrefix} | Throttled ({attempts}).";
                             Task.Delay(20000).Wait();
                         }
+                        catch (ClientResultException ex)
+                        {
+                            taskBar.Message = $"{msgPrefix} | Error in HTTP response, skipping batch.";
+                            Task.Delay(5000).Wait();
+                            taskBar.Tick(_openaiBatchSize);                            
+                        }
                         catch (Exception ex)
                         {
-                            // Log the offending text
                             if (Environment.UserInteractive && !System.Diagnostics.Debugger.IsAttached)
                             {
                                 Console.Clear();
                                 consoleCleared = true;
                             }
-                            Console.WriteLine($"[{taskId:00}] !Error!");
-                            Console.WriteLine($"[{taskId:00}] !Error! Offending texts:");
-                            foreach (var i in inputTexts)
-                            {
-                                Console.WriteLine(i);
-                            }
+                            Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");
+                            Console.WriteLine($"[{taskId:00}] !Error! StackTrace:{ex.StackTrace}");
                             throw;
                         }
                     }
@@ -328,7 +331,7 @@ public class Program
             Console.WriteLine($"[{taskId:00}] !Error! ErrorType:{ex.GetType()} Message:{ex.Message}");
             Console.WriteLine($"[{taskId:00}] !Error! StackTrace:{ex.StackTrace}");
             Environment.Exit(1);
-        }
+        }        
     }
 
     private static bool IsThrottledException(Exception ex)
